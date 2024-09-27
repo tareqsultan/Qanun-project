@@ -1,0 +1,73 @@
+#include <SSD1306.h>  
+  
+#define ENCODER_PIN_A 2  
+#define ENCODER_PIN_B 3  
+#define ENCODER_PUSHBUTTON_PIN 4  
+#define OLED_RESET 5  
+  
+SSD1306 display = SSD1306(128, 64, &Wire, OLED_RESET);  
+  
+int attackTime = 20;  
+int decayTime = 30;  
+int sustainTime = 40;  
+int releaseTime = 50;  
+  
+int currentPoint = 0; // 0: attack, 1: decay, 2: sustain, 3: release  
+  
+void setup() {  
+  pinMode(ENCODER_PIN_A, INPUT);  
+  pinMode(ENCODER_PIN_B, INPUT);  
+  pinMode(ENCODER_PUSHBUTTON_PIN, INPUT);  
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  
+}  
+  
+void loop() {  
+  int encoderValue = readEncoder();  
+  int pushbuttonState = digitalRead(ENCODER_PUSHBUTTON_PIN);  
+  
+  if (pushbuttonState == HIGH) {  
+   // increment or decrement current point  
+   currentPoint = (currentPoint + 1) % 4;  
+  }  
+  
+  updateADSR(encoderValue);  
+  displayADSR();  
+  delay(10);  
+}  
+  
+int readEncoder() {  
+  int value = 0;  
+  if (digitalRead(ENCODER_PIN_A) == HIGH) {  
+   value += 1;  
+  }  
+  if (digitalRead(ENCODER_PIN_B) == HIGH) {  
+   value += 2;  
+  }  
+  return value;  
+}  
+  
+void updateADSR(int encoderValue) {  
+  switch (currentPoint) {  
+   case 0:  
+    attackTime = map(encoderValue, 0, 1023, 10, 50);  
+    break;  
+   case 1:  
+    decayTime = map(encoderValue, 0, 1023, 10, 50);  
+    break;  
+   case 2:  
+    sustainTime = map(encoderValue, 0, 1023, 10, 50);  
+    break;  
+   case 3:  
+    releaseTime = map(encoderValue, 0, 1023, 10, 50);  
+    break;  
+  }  
+}  
+  
+void displayADSR() {  
+  display.clearDisplay();  
+  display.drawLine(10, 10, attackTime, 20, WHITE); // Attack phase  
+  display.drawLine(attackTime, 20, decayTime, 15, WHITE); // Decay phase  
+  display.drawLine(decayTime, 15, sustainTime, 15, WHITE); // Sustain phase  
+  display.drawLine(sustainTime, 15, releaseTime, 10, WHITE); // Release phase  
+  display.display();  
+}
