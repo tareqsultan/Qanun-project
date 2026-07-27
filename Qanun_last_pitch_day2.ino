@@ -80,6 +80,41 @@ unsigned long lastDisplayTime = 0;
 const unsigned long displayInterval = 80; 
 
 // =========================================================================
+// 📑 تبويب ومصفوفة أسماء آلات الـ General MIDI (128 آلة)
+// =========================================================================
+const char* instrumentNames[128] = {
+  "Acoustic Grand Piano", "Bright A. Piano", "Electric Grand Piano", "Honky-tonk Piano",
+  "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavi",
+  "Celesta", "Glockenspiel", "Music Box", "Vibraphone",
+  "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
+  "Drawbar Organ", "Percussive Organ", "Rock Organ", "Church Organ",
+  "Reed Organ", "Accordion", "Harmonica", "Tango Accordion",
+  "Nylon Guitar", "Steel Guitar", "Jazz Guitar", "Clean Guitar",
+  "Muted Guitar", "Overdriven Guitar", "Distortion Guitar", "Guitar Harmonics",
+  "Acoustic Bass", "Finger Bass", "Pick Bass", "Fretless Bass",
+  "Slap Bass 1", "Slap Bass 2", "Synth Bass 1", "Synth Bass 2",
+  "Violin", "Viola", "Cello", "Contrabass",
+  "Tremolo Strings", "Pizzicato Strings", "Orchestral Harp", "Timpani",
+  "String Ensemble 1", "String Ensemble 2", "SynthStrings 1", "SynthStrings 2",
+  "Choir Aahs", "Voice Oohs", "Synth Voice", "Orchestra Hit",
+  "Trumpet", "Trombone", "Tuba", "Muted Trumpet",
+  "French Horn", "Brass Section", "SynthBrass 1", "SynthBrass 2",
+  "Soprano Sax", "Alto Sax", "Tenor Sax", "Baritone Sax",
+  "Oboe", "English Horn", "Bassoon", "Clarinet",
+  "Piccolo", "Flute", "Recorder", "Pan Flute", "Blown Bottle", "Shakuhachi", "Whistle", "Ocarina",
+  "Lead 1 (square)", "Lead 2 (sawtooth)", "Lead 3 (calliope)", "Lead 4 (chiff)",
+  "Lead 5 (charang)", "Lead 6 (voice)", "Lead 7 (fifths)", "Lead 8 (bass+lead)",
+  "Pad 1 (new age)", "Pad 2 (warm)", "Pad 3 (polysynth)", "Pad 4 (choir)",
+  "Pad 5 (bowed)", "Pad 6 (metallic)", "Pad 7 (halo)", "Pad 8 (sweep)",
+  "FX 1 (rain)", "FX 2 (soundtrack)", "FX 3 (crystal)", "FX 4 (atmosphere)",
+  "FX 5 (brightness)", "FX 6 (goblins)", "FX 7 (echoes)", "FX 8 (sci-fi)",
+  "Sitar", "Banjo", "Shamisen", "Koto", "Kalimba", "Bag pipe", "Fiddle", "Shanai",
+  "Tinkle Bell", "Agogo", "Steel Drums", "Woodblock", "Taiko Drum", "Melodic Tom",
+  "Synth Drum", "Reverse Cymbal", "Guitar Fret Noise", "Breath Noise",
+  "Seashore", "Bird Tweet", "Telephone Ring", "Helicopter", "Applause", "Gunshot"
+};
+
+// =========================================================================
 // 5️⃣ إعدادات أزرار الربع تون، اختيار الصفحات والـ SD Card ودبابيس التعديل
 // =========================================================================
 #define SELECT_PAGE_PIN 29
@@ -88,12 +123,9 @@ const unsigned long displayInterval = 80;
 #define PIN_MINUS       12
 
 const int numPageButtons = 7;
-// الأزرار مرتبة من اليسار إلى اليمين: الزر 1 (دبوس 4) ... الزر 7 (دبوس 10)
 const int buttonPins[numPageButtons] = {4, 5, 6, 7, 8, 9, 10}; 
 
 bool lastButtonStates[numPageButtons] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
-
-// خريطة الليدات معكوسة اتجاهياً: الزر 1 (دبوس 4) -> ليد 6 | الزر 7 (دبوس 10) -> ليد 0
 const uint8_t buttonLedMap[numPageButtons] = {6, 5, 4, 3, 2, 1, 0}; 
 
 bool padQuarterToneActive[numKeys] = {false}; 
@@ -108,10 +140,7 @@ int transposeOffset = 0;
 int microtuneCentValue = -23; 
 
 bool lastSaveBtnState = HIGH;
-unsigned long saveBtnPressTime = 0;
-const unsigned long holdThreshold = 1000; 
 
-const char* presetFileName = "preset.txt";
 bool isSdCardReady = false;
 
 const char* pageNames[7] = {
@@ -132,18 +161,19 @@ void updateButtonLEDs() {
   for (int i = 0; i < numPageButtons; i++) {
     bool isGroupActive = false;
     switch(buttonPins[i]) {
-      case 4:  isGroupActive = (padQuarterToneActive[0] || padQuarterToneActive[7] || padQuarterToneActive[14]); break; // الزر 1 (درجة 1) -> ليد 6
-      case 5:  isGroupActive = (padQuarterToneActive[1] || padQuarterToneActive[8] || padQuarterToneActive[15]); break; // الزر 2 (درجة 2) -> ليد 5
-      case 6:  isGroupActive = (padQuarterToneActive[2] || padQuarterToneActive[9]); break;  // الزر 3 (درجة 3) -> ليد 4
-      case 7:  isGroupActive = (padQuarterToneActive[3] || padQuarterToneActive[10]); break; // الزر 4 (درجة 4) -> ليد 3
-      case 8:  isGroupActive = (padQuarterToneActive[4] || padQuarterToneActive[11]); break; // الزر 5 (درجة 5) -> ليد 2
-      case 9:  isGroupActive = (padQuarterToneActive[5] || padQuarterToneActive[12]); break; // الزر 6 (درجة 6) -> ليد 1
-      case 10: isGroupActive = (padQuarterToneActive[6] || padQuarterToneActive[13]); break; // الزر 7 (درجة 7) -> ليد 0
+      case 4:  isGroupActive = (padQuarterToneActive[0] || padQuarterToneActive[7] || padQuarterToneActive[14]); break;
+      case 5:  isGroupActive = (padQuarterToneActive[1] || padQuarterToneActive[8] || padQuarterToneActive[15]); break;
+      case 6:  isGroupActive = (padQuarterToneActive[2] || padQuarterToneActive[9]); break; 
+      case 7:  isGroupActive = (padQuarterToneActive[3] || padQuarterToneActive[10]); break;
+      case 8:  isGroupActive = (padQuarterToneActive[4] || padQuarterToneActive[11]); break;
+      case 9:  isGroupActive = (padQuarterToneActive[5] || padQuarterToneActive[12]); break;
+      case 10: isGroupActive = (padQuarterToneActive[6] || padQuarterToneActive[13]); break;
     }
     uint8_t physicalLedIndex = buttonLedMap[i];
     subLeds[physicalLedIndex] = isGroupActive ? CRGB::Blue : CRGB::Black;
   }
 }
+
 void setMainLineState(int lineIndex, bool turnOn) {
   for (uint8_t x = 0; x < MATRIX_WIDTH; x++) {
     int16_t ledIndex = XY_Table[lineIndex][x];
@@ -161,14 +191,21 @@ void setMainLineState(int lineIndex, bool turnOn) {
   }
 }
 
+// 🎯 معادلة حساب الـ Pitch Bend للربع تون
 int centToPitchBend(int cents) {
-  return 8192 + (cents * 81.92);
+  int pb = 8192 + (int)(cents * 40.96);
+  return constrain(pb, 0, 16383);
 }
 
 void sendMicrotuneValue(int cents) {
   int pbVal = centToPitchBend(cents);
   byte lsb = pbVal & 0x7F;
   byte msb = (pbVal >> 7) & 0x7F;
+  
+  // إرسال RPN لضبط المدى بالقناة 2 على 2 Semitones
+  Serial1.write(0xB1); Serial1.write(0x65); Serial1.write(0x00);
+  Serial1.write(0xB1); Serial1.write(0x64); Serial1.write(0x00);
+  Serial1.write(0xB1); Serial1.write(0x06); Serial1.write(0x02);
   
   usbMIDI.sendPitchBend(pbVal, 2); 
   Serial1.write(0xE1); 
@@ -198,11 +235,15 @@ void updateOledDisplay(int keyNum, int noteVal, const char* statusStr) {
   display.drawFastHLine(0, 11, 128, SSD1306_WHITE);
   
   display.setCursor(0, 18);
+  
   if (currentPage == 1) {
     display.print("PRESET: "); display.print(presetNumber);
   } 
   else if (currentPage == 2) {
-    display.print("VOICE: "); display.print(programChangeVal);
+    int instIndex = constrain(programChangeVal - 1, 0, 127);
+    display.print(programChangeVal);
+    display.print(":");
+    display.print(instrumentNames[instIndex]);
   }
   else if (currentPage == 3) {
     display.print("TRANS: "); display.print(transposeOffset > 0 ? "+" : ""); display.print(transposeOffset);
@@ -239,7 +280,6 @@ void savePresetToSD() {
     return;
   }
   
-  // 🎯 إنشاء اسم ملف ديناميكي بناءً على رقم الـ Preset (مثل preset_0.txt)
   char currentFileName[20];
   snprintf(currentFileName, sizeof(currentFileName), "preset_%d.txt", presetNumber);
 
@@ -251,21 +291,21 @@ void savePresetToSD() {
   
   File myFile = SD.open(currentFileName, FILE_WRITE);
   if (myFile) {
-    // 1️⃣ حفظ حالة الربع تون للمفاتيح الـ 16 (0 أو 1)
+    // 1️⃣ حفظ أزرار الربع تون
     for (int i = 0; i < numKeys; i++) {
       myFile.println(padQuarterToneActive[i] ? "1" : "0");
     }
     
-    // 2️⃣ حفظ قيم النغمات المضبوطة بالمقابض الـ 16 (cMajorScale)
+    // 2️⃣ حفظ المقابض 16
     for (int i = 0; i < numPots; i++) {
       myFile.println(cMajorScale[i]);
     }
 
-    // 3️⃣ حفظ قيم الصفحات والإعدادات العامة
-    myFile.println(presetNumber);         // الصفحة 1
-    myFile.println(programChangeVal);     // الصفحة 2
-    myFile.println(transposeOffset);      // الصفحة 3
-    myFile.println(microtuneCentValue);   // الصفحة 4
+    // 3️⃣ حفظ باقي القيم
+    myFile.println(presetNumber);
+    myFile.println(programChangeVal);
+    myFile.println(transposeOffset);
+    myFile.println(microtuneCentValue);
     
     myFile.close();
     showOledMessage("SD CARD SYSTEM", "SAVE SUCCESS!");
@@ -285,7 +325,6 @@ void savePresetToSD() {
 void loadPresetFromSD() {
   if (!isSdCardReady) return;
   
-  // 🎯 قراءة الملف الخاص برقم الـ Preset المختار حالياً من الشاشة
   char currentFileName[20];
   snprintf(currentFileName, sizeof(currentFileName), "preset_%d.txt", presetNumber);
   
@@ -297,7 +336,7 @@ void loadPresetFromSD() {
   
   File myFile = SD.open(currentFileName, FILE_READ);
   if (myFile) {
-    // 1️⃣ قراءة وتطبيق حالة الربع تون للمفاتيح الـ 16
+    // 1️⃣ قراءة الربع تون
     int keyIdx = 0;
     while (myFile.available() && keyIdx < numKeys) {
       String line = myFile.readStringUntil('\n');
@@ -308,7 +347,7 @@ void loadPresetFromSD() {
       }
     }
 
-    // 2️⃣ قراءة وتطبيق قيم المقابض الـ 16 مع تحديث ألوان الليدات الفرعية المرافقة
+    // 2️⃣ قراءة المقابض الـ 16
     int potIdx = 0;
     while (myFile.available() && potIdx < numPots) {
       String line = myFile.readStringUntil('\n');
@@ -325,14 +364,15 @@ void loadPresetFromSD() {
       potIdx++;
     }
 
-    // 3️⃣ قراءة وتطبيق قيم الصفحات والإعدادات العامة بالترتيب المكتوب
+    // 3️⃣ قراءة الإعدادات العامة والتجاوز الذكي لرقم البريست
     if (myFile.available()) {
-      presetNumber = myFile.readStringUntil('\n').toInt(); // تثبيت رقم Preset المحفوظ
+      int savedPresetNum = myFile.readStringUntil('\n').toInt(); 
+      // 🎯 الحفاظ على البريست المختار من الشاشة وعدم التراجع!
     }
     
     if (myFile.available()) {
       programChangeVal = myFile.readStringUntil('\n').toInt(); 
-      sendProgramChange(programChangeVal); // إرسال الصوت الجديد فوراً للميدي
+      sendProgramChange(programChangeVal); 
     }
     
     if (myFile.available()) {
@@ -341,7 +381,7 @@ void loadPresetFromSD() {
     
     if (myFile.available()) {
       microtuneCentValue = myFile.readStringUntil('\n').toInt(); 
-      sendMicrotuneValue(microtuneCentValue); // إرسال الـ Pitch Bend الشرقي فوراً
+      sendMicrotuneValue(microtuneCentValue); 
     }
     
     myFile.close();
@@ -532,22 +572,21 @@ void loop() {
     activeNoteForDisplay = 0;
     activeStatusForDisplay = "CHNG";
   }
-// -----------------------------------------------------------------
-  // [ثانياً]: فحص زر التحميل والحفظ (Pin 28 مع دعم Pin 29 للحفظ)
+
+  // -----------------------------------------------------------------
+  // [ثانياً]: فحص زر التحميل والحفظ (Pin 28 مع زر Pin 29)
   // -----------------------------------------------------------------
   bool saveBtnState = (digitalRead(SAVE_LOAD_PIN) == LOW);
   
   if (saveBtnState != (lastSaveBtnState == LOW)) {
-    delay(15); // Debounce لتفادي الارتجاج الكهربائي
+    delay(15); 
     
-    if (saveBtnState) { // عند لحظة الضغط
-      bool isPageBtnHeld = (digitalRead(SELECT_PAGE_PIN) == LOW); // فحص هل زر الصفحات مضغوط بالتزامن
+    if (saveBtnState) { 
+      bool isPageBtnHeld = (digitalRead(SELECT_PAGE_PIN) == LOW); 
       
       if (isPageBtnHeld) {
-        // إذا كان زر SELECT_PAGE مضغوطاً مع زر LOAD = حفظ Preset
         savePresetToSD();
       } else {
-        // إذا تم ضغط زر LOAD لوحده = تحميل Preset
         loadPresetFromSD();
       }
       
@@ -556,6 +595,7 @@ void loop() {
     }
     lastSaveBtnState = saveBtnState ? LOW : HIGH;
   }
+
   // -----------------------------------------------------------------
   // [ثالثاً]: فحص الأزرار السبعة (الربع تون الفوري + تغيير الصفحات)
   // -----------------------------------------------------------------
@@ -569,7 +609,6 @@ void loop() {
       
       if (btnState) { 
         if (isPageBtnPressed) {
-          // i=0 (دبوس 4) -> صفحة 1 | i=6 (دبوس 10) -> صفحة 7
           currentPage = i + 1; 
           
           updateButtonLEDs();
@@ -580,33 +619,33 @@ void loop() {
           activeStatusForDisplay = "PAGE";
         } else {
           switch(buttonPins[i]) {
-            case 4: // الزر 1 (دبوس 4)
+            case 4:
               padQuarterToneActive[0] = !padQuarterToneActive[0];
               padQuarterToneActive[7] = !padQuarterToneActive[7];
               padQuarterToneActive[14] = !padQuarterToneActive[14];
               break;
-            case 5: // الزر 2 (دبوس 5)
+            case 5:
               padQuarterToneActive[1] = !padQuarterToneActive[1];
               padQuarterToneActive[8] = !padQuarterToneActive[8];
               padQuarterToneActive[15] = !padQuarterToneActive[15];
               break;
-            case 6: // الزر 3 (دبوس 6)
+            case 6:
               padQuarterToneActive[2] = !padQuarterToneActive[2];
               padQuarterToneActive[9] = !padQuarterToneActive[9];
               break;
-            case 7: // الزر 4 (دبوس 7)
+            case 7:
               padQuarterToneActive[3] = !padQuarterToneActive[3];
               padQuarterToneActive[10] = !padQuarterToneActive[10];
               break;
-            case 8: // الزر 5 (دبوس 8)
+            case 8:
               padQuarterToneActive[4] = !padQuarterToneActive[4];
               padQuarterToneActive[11] = !padQuarterToneActive[11];
               break;
-            case 9: // الزر 6 (دبوس 9)
+            case 9:
               padQuarterToneActive[5] = !padQuarterToneActive[5];
               padQuarterToneActive[12] = !padQuarterToneActive[12];
               break;
-            case 10: // الزر 7 (دبوس 10) -> الدرجة السابعة (Pad 6 و 13)
+            case 10:
               padQuarterToneActive[6] = !padQuarterToneActive[6];
               padQuarterToneActive[13] = !padQuarterToneActive[13];
               break;
@@ -645,7 +684,7 @@ void loop() {
   }
 
   // -----------------------------------------------------------------
-  // [خامساً]: قراءة حساس اللمس (Trill) مع دمج رسائل الميكروتيون لحظياً
+  // [خامساً]: قراءة حساس اللمس (Trill) مع دمج رسائل الميكروتيون
   // -----------------------------------------------------------------
   if (isSensorOnline) {
     trillSensor.requestRawData();
@@ -668,6 +707,10 @@ void loop() {
           int pbVal = centToPitchBend(microtuneCentValue);
           byte pbLsb = pbVal & 0x7F;
           byte pbMsb = (pbVal >> 7) & 0x7F;
+          
+          Serial1.write(0xB1); Serial1.write(0x65); Serial1.write(0x00);
+          Serial1.write(0xB1); Serial1.write(0x64); Serial1.write(0x00);
+          Serial1.write(0xB1); Serial1.write(0x06); Serial1.write(0x02);
           
           usbMIDI.sendPitchBend(pbVal, 2); 
           Serial1.write(0xE1); 
