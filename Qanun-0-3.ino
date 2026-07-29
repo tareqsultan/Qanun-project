@@ -61,20 +61,23 @@ const uint8_t potPins[numPots] = {20, 21, 22, 23, 17, 16, 15, 14, 40, 39, 38, 41
 const uint8_t potLedMap[numPots] = {22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7}; 
 
 int lastNoteValues[numPots]; 
-int lastHandRaw[numPots];        // تخزين آخر قراءة كهربائية خام تحركت إليها يدك
-bool isHandActive[numPots] = {false}; // قفل كلي للمقابض لحماية البريست
+int lastHandRaw[numPots];        
+bool isHandActive[numPots] = {false}; 
 
 #define BRIGHT_DIM    60   
 #define BRIGHT_FULL   150  
 
 // =========================================================================
-// 4️⃣ إعدادات حساس اللمس (Trill)
+// 4️⃣ إعدادات حساس اللمس (Trill) ومصفوفات التأخير
 // =========================================================================
 Trill trillSensor;
 const int numKeys = 16;          
 int cMajorScale[numKeys]; 
 bool noteStates[numKeys];           
 bool isSensorOnline = false;
+
+bool pendingNoteOff[numKeys] = {false};
+unsigned long noteReleaseTime[numKeys] = {0};
 
 const int touchThreshold = 350;       
 const int releaseThreshold = 280;     
@@ -141,6 +144,7 @@ int presetNumber = 0;
 int programChangeVal = 1;     
 int transposeOffset = 0;      
 int microtuneCentValue = -23; 
+int noteDurationVal = 1;     
 
 bool lastSaveBtnState = HIGH;
 bool isSdCardReady = false;
@@ -150,7 +154,7 @@ const char* pageNames[7] = {
   "2: PROGRAM CHANGE",
   "3: TRANSPOSE ALL",
   "4: MICROTUNE CH2",
-  "5: CHANGE MODE",
+  "5: NOTE DURATION", 
   "6: VELOCITY",
   "7: PAGE 7"
 };
@@ -251,6 +255,9 @@ void updateOledDisplay(int keyNum, int noteVal, const char* statusStr) {
   else if (currentPage == 4) {
     display.print("TUNE: "); display.print(microtuneCentValue); display.print(" Cent");
   }
+  else if (currentPage == 5) {
+    display.print("RELEASE: "); display.print(noteDurationVal * 10); display.print(" ms");
+  }
   else {
     display.print("KEY: "); display.print(keyNum);
     display.setCursor(64, 18);
@@ -303,6 +310,7 @@ void savePresetToSD() {
     myFile.println(programChangeVal);
     myFile.println(transposeOffset);
     myFile.println(microtuneCentValue);
+    myFile.println(noteDurationVal);
     
     myFile.close();
     showOledMessage("SD CARD SYSTEM", "SAVE SUCCESS!");
@@ -333,7 +341,6 @@ void loadPresetFromSD() {
   
   File myFile = SD.open(currentFileName, FILE_READ);
   if (myFile) {
-    // 1️⃣ قراءة وتطبيق أزرار الربع تون
     int keyIdx = 0;
     while (myFile.available() && keyIdx < numKeys) {
       String line = myFile.readStringUntil('\n');
@@ -344,7 +351,6 @@ void loadPresetFromSD() {
       }
     }
 
-    // 2️⃣ قراءة وتطبيق دوزان المقابض الـ 16 وإعادة تلوين الليدات الفرعية فوراً
     int potIdx = 0;
     while (myFile.available() && potIdx < numPots) {
       String line = myFile.readStringUntil('\n');
@@ -354,7 +360,6 @@ void loadPresetFromSD() {
         cMajorScale[potIdx] = savedNote;
         lastNoteValues[potIdx] = savedNote;
         
-        // حساب وتحديث لون الليد الخاص بالمقبض فورياً بحسب نغمة البريست (Major / Minor)
         uint8_t ledIndex = potLedMap[potIdx]; 
         uint8_t noteHue = map(savedNote, 52, 84, 0, 255);
         subLeds[ledIndex] = CHSV(noteHue, 255, BRIGHT_DIM);
@@ -363,7 +368,7 @@ void loadPresetFromSD() {
     }
 
     if (myFile.available()) {
-      myFile.readStringUntil('\n'); // قراءة وتجاهل رقم البريست للثبات على البريست المختار من الشاشة
+      myFile.readStringUntil('\n');
     }
     
     if (myFile.available()) {
@@ -379,13 +384,16 @@ void loadPresetFromSD() {
       microtuneCentValue = myFile.readStringUntil('\n').toInt(); 
       sendMicrotuneValue(microtuneCentValue); 
     }
+
+    if (myFile.available()) {
+      noteDurationVal = myFile.readStringUntil('\n').toInt(); 
+    }
     
     myFile.close();
     
-    // 🎯 عزل المقابض الفيزيائية تماماً وتسجيل مواقعها لعدم خلط القراءات
     for (int i = 0; i < numPots; i++) {
       lastHandRaw[i] = analogRead(potPins[i]);
-      isHandActive[i] = false; // قفل المقبض
+      isHandActive[i] = false; 
     }
 
     updateButtonLEDs();
@@ -394,7 +402,7 @@ void loadPresetFromSD() {
     showOledMessage("SD CARD SYSTEM", "LOAD SUCCESS!");
     
     for(int i = 0; i < 7; i++) subLeds[i] = CRGB::Blue;
-    FastLED.show(); // ⚡ تحديث فوري وشامل لجميع الليدات
+    FastLED.show(); 
     delay(400);
     
     updateButtonLEDs();
@@ -422,7 +430,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000); 
 
-  Serial1.begin(31250); 
+  Serial1.begin(31250); // الاتصال بـ Arduino Uno
 
   pinMode(SELECT_PAGE_PIN, INPUT_PULLUP);
   pinMode(SAVE_LOAD_PIN, INPUT_PULLUP);
@@ -463,7 +471,7 @@ void setup() {
   for (int i = 0; i < numPots; i++) {
     pinMode(potPins[i], INPUT);
     int rawValue = analogRead(potPins[i]);
-    lastHandRaw[i] = rawValue; // تهيئة موقع المقبض المبدئي
+    lastHandRaw[i] = rawValue; 
     int currentNote = map(rawValue, 0, 1023, 52, 84);
     lastNoteValues[i] = currentNote;
     cMajorScale[i] = currentNote; 
@@ -491,7 +499,10 @@ void setup() {
     delay(1000);
   }
 
-  for (int i = 0; i < numKeys; i++) noteStates[i] = false;
+  for (int i = 0; i < numKeys; i++) {
+    noteStates[i] = false;
+    pendingNoteOff[i] = false;
+  }
   
   sendMicrotuneValue(microtuneCentValue);
   
@@ -503,6 +514,45 @@ void setup() {
 // =========================================================================
 void loop() {
   usbMIDI.read(); 
+
+  // -----------------------------------------------------------------
+  // 🎯 [الجسر المحوري]: قراءة واستقبال بيانات Uno وإعادة توجيهها لـ Ableton عبر USB
+  // -----------------------------------------------------------------
+  static byte midiBuffer[3];
+  static byte bufIndex = 0;
+
+  while (Serial1.available() > 0) {
+    byte inByte = Serial1.read();
+
+    if (inByte >= 0x80) {
+      bufIndex = 0;
+      midiBuffer[bufIndex++] = inByte;
+    } 
+    else if (bufIndex > 0) {
+      midiBuffer[bufIndex++] = inByte;
+      
+      // Pitch Bend (0xE0 أو 0xE1)
+      if ((midiBuffer[0] & 0xF0) == 0xE0 && bufIndex == 3) {
+        int pbValue = midiBuffer[1] | (midiBuffer[2] << 7);
+        byte channel = (midiBuffer[0] & 0x0F) + 1; 
+        
+        usbMIDI.sendPitchBend(pbValue, channel); // 🚀 الإرسال الفوري لـ Ableton!
+        bufIndex = 0;
+      }
+      // Control Change
+      else if ((midiBuffer[0] & 0xF0) == 0xB0 && bufIndex == 3) {
+        byte control = midiBuffer[1];
+        byte val = midiBuffer[2];
+        byte channel = (midiBuffer[0] & 0x0F) + 1;
+        
+        usbMIDI.sendControlChange(control, val, channel);
+        bufIndex = 0;
+      }
+      else if (bufIndex >= 3) {
+        bufIndex = 0; 
+      }
+    }
+  }
 
   bool needsLedsUpdate = false; 
   int activeKeyForDisplay = -1;
@@ -539,6 +589,9 @@ void loop() {
           valuesChangedForDisplay = true; 
         }
       }
+      else if (currentPage == 5) { 
+        if (noteDurationVal < 100) { noteDurationVal++; valuesChangedForDisplay = true; }
+      }
     }
     lastPlusState = plusState ? LOW : HIGH;
   }
@@ -565,6 +618,9 @@ void loop() {
           sendMicrotuneValue(microtuneCentValue); 
           valuesChangedForDisplay = true; 
         }
+      }
+      else if (currentPage == 5) {
+        if (noteDurationVal > 0) { noteDurationVal--; valuesChangedForDisplay = true; }
       }
     }
     lastMinusState = minusState ? LOW : HIGH;
@@ -667,17 +723,14 @@ void loop() {
   for (int i = 0; i < numPots; i++) {
     int currentRaw = analogRead(potPins[i]);
 
-    // نتحقق: هل تحرك المقبض الفيزيائي بيدك بوضوح؟ (أكثر من 30 نقطة من أصل 1023)
     if (abs(currentRaw - lastHandRaw[i]) > 30) {
-      isHandActive[i] = true; // تفعيل المقبض للتعديل اليدوي
+      isHandActive[i] = true; 
     }
 
-    // إذا لم تحرك المقبض بيدك، يتجاهل الكود القراءة الكهربائية كلياً ويحافظ على البريست
     if (!isHandActive[i]) {
       continue; 
     }
 
-    // التعديل اللحظي عند حركة اليد الصريحة
     int currentNote = map(currentRaw, 0, 1023, 52, 84);
 
     if (currentNote != lastNoteValues[i]) { 
@@ -700,7 +753,7 @@ void loop() {
   }
 
   // -----------------------------------------------------------------
-  // [خامساً]: قراءة حساس اللمس (Trill) مع دمج رسائل الميكروتيون
+  // [خامساً]: قراءة حساس اللمس (Trill) مع تطبيق وقت تأخير الإيقاف (Release Delay)
   // -----------------------------------------------------------------
   if (isSensorOnline) {
     trillSensor.requestRawData();
@@ -717,41 +770,49 @@ void loop() {
       byte statusByteOn = (targetChannel == 2) ? 0x91 : 0x90; 
       byte statusByteOff = (targetChannel == 2) ? 0x81 : 0x80; 
 
-      if (rawTouchValue > touchThreshold && !noteStates[pinCounter]) {
+      if (rawTouchValue > touchThreshold) {
+        pendingNoteOff[pinCounter] = false; 
         
-        if (targetChannel == 2) {
-          int pbVal = centToPitchBend(microtuneCentValue);
-          byte pbLsb = pbVal & 0x7F;
-          byte pbMsb = (pbVal >> 7) & 0x7F;
+        if (!noteStates[pinCounter]) {
+          if (targetChannel == 2) {
+            int pbVal = centToPitchBend(microtuneCentValue);
+            byte pbLsb = pbVal & 0x7F;
+            byte pbMsb = (pbVal >> 7) & 0x7F;
+            
+            Serial1.write(0xB1); Serial1.write(0x65); Serial1.write(0x00);
+            Serial1.write(0xB1); Serial1.write(0x64); Serial1.write(0x00);
+            Serial1.write(0xB1); Serial1.write(0x06); Serial1.write(0x02);
+            
+            usbMIDI.sendPitchBend(pbVal, 2); 
+            Serial1.write(0xE1); 
+            Serial1.write(pbLsb);
+            Serial1.write(pbMsb);
+          }
+
+          usbMIDI.sendNoteOn(midiNote, 105, targetChannel); 
+          Serial1.write(statusByteOn); 
+          Serial1.write(midiNote);
+          Serial1.write(105);  
+
+          setMainLineState(pinCounter, true); 
           
-          Serial1.write(0xB1); Serial1.write(0x65); Serial1.write(0x00);
-          Serial1.write(0xB1); Serial1.write(0x64); Serial1.write(0x00);
-          Serial1.write(0xB1); Serial1.write(0x06); Serial1.write(0x02);
-          
-          usbMIDI.sendPitchBend(pbVal, 2); 
-          Serial1.write(0xE1); 
-          Serial1.write(pbLsb);
-          Serial1.write(pbMsb);
+          uint8_t noteHue = map(originalNote, 52, 84, 0, 255);
+          subLeds[ledIndex] = CHSV(noteHue, 255, BRIGHT_FULL);
+
+          needsLedsUpdate = true;
+          noteStates[pinCounter] = true;
+
+          activeKeyForDisplay = pinCounter + 1;
+          activeNoteForDisplay = midiNote;
+          activeStatusForDisplay = (targetChannel == 2) ? "QT " : "ON ";
         }
-
-        usbMIDI.sendNoteOn(midiNote, 105, targetChannel); 
-        Serial1.write(statusByteOn); 
-        Serial1.write(midiNote);
-        Serial1.write(105);  
-
-        setMainLineState(pinCounter, true); 
-        
-        uint8_t noteHue = map(originalNote, 52, 84, 0, 255);
-        subLeds[ledIndex] = CHSV(noteHue, 255, BRIGHT_FULL);
-
-        needsLedsUpdate = true;
-        noteStates[pinCounter] = true;
-
-        activeKeyForDisplay = pinCounter + 1;
-        activeNoteForDisplay = midiNote;
-        activeStatusForDisplay = (targetChannel == 2) ? "QT " : "ON ";
       } 
-      else if (rawTouchValue < releaseThreshold && noteStates[pinCounter]) {
+      else if (rawTouchValue < releaseThreshold && noteStates[pinCounter] && !pendingNoteOff[pinCounter]) {
+        pendingNoteOff[pinCounter] = true;
+        noteReleaseTime[pinCounter] = millis() + (noteDurationVal * 10); 
+      }
+
+      if (pendingNoteOff[pinCounter] && millis() >= noteReleaseTime[pinCounter]) {
         usbMIDI.sendNoteOff(midiNote, 0, targetChannel); 
         Serial1.write(statusByteOff); 
         Serial1.write(midiNote);
@@ -764,11 +825,13 @@ void loop() {
 
         needsLedsUpdate = true;
         noteStates[pinCounter] = false;
+        pendingNoteOff[pinCounter] = false;
 
         activeKeyForDisplay = pinCounter + 1;
         activeNoteForDisplay = midiNote;
         activeStatusForDisplay = "OFF";
       }
+
       pinCounter++; 
     }
   }
