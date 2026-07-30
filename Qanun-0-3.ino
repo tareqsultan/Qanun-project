@@ -67,6 +67,9 @@ bool isHandActive[numPots] = {false};
 #define BRIGHT_DIM    60   
 #define BRIGHT_FULL   150  
 
+bool needsLedsUpdate = false; 
+bool valuesChangedForDisplay = false;
+
 // =========================================================================
 // 4️⃣ إعدادات حساس اللمس (Trill) ومصفوفات التأخير والـ Toggle
 // =========================================================================
@@ -76,7 +79,6 @@ int cMajorScale[numKeys];
 bool noteStates[numKeys];           
 bool isSensorOnline = false;
 
-// 🎯 التعريفات التي كانت مفقودة وتسببت في الخطأ:
 bool toggleStates[numKeys] = {false};    
 bool isTouchHandled[numKeys] = {false};  
 
@@ -89,9 +91,7 @@ const int releaseThreshold = 180;
 unsigned long lastDisplayTime = 0;
 const unsigned long displayInterval = 80; 
 
-// =========================================================================
-// 📑 تبويب ومصفوفة أسماء آلات الـ General MIDI (128 آلة)
-// =========================================================================
+// General MIDI Instrument Names
 const char* instrumentNames[128] = {
   "Acoustic Grand Piano", "Bright A. Piano", "Electric Grand Piano", "Honky-tonk Piano",
   "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavi",
@@ -125,7 +125,7 @@ const char* instrumentNames[128] = {
 };
 
 // =========================================================================
-// 5️⃣ إعدادات أزرار الربع تون، اختيار الصفحات والـ SD Card ودبابيس التعديل
+// 5️⃣ إعدادات الصفحات وإعدادات الـ Step Sequencer
 // =========================================================================
 #define SELECT_PAGE_PIN 29
 #define SAVE_LOAD_PIN   28  
@@ -151,6 +151,34 @@ int microtuneCentValue = -23;
 int noteDurationVal = 1;     
 int workingMode = 0;          
 
+bool seqRunning = false;
+int currentStep = 0;
+int seqLength = 16;             
+int seqBpm = 120;               
+
+bool isGateSettingMode = false;   
+bool isTempoSettingMode = false;  
+bool isStepsSettingMode = false;  
+bool isChanceSettingMode = false; 
+
+int stepChancePercent = 100;      
+int stepGatePercent = 75;       
+
+bool stepMuteState[16] = {      
+  true, true, true, true, true, true, true, true,
+  true, true, true, true, true, true, true, true
+};
+
+unsigned long lastStepTime = 0;
+bool isCurrentStepNoteActive = false; 
+int playingStepNote = -1;
+
+int stepDivisionIndex = 2;      
+const char* divisionNames[4] = {"1/4", "1/8", "1/16", "1/32"};
+
+int playDirection = 0;          
+const char* directionNames[3] = {"FWD", "BWD", "RND"};
+
 bool lastSaveBtnState = HIGH;
 bool isSdCardReady = false;
 
@@ -161,8 +189,122 @@ const char* pageNames[7] = {
   "4: MICROTUNE CH2",
   "5: NOTE DURATION", 
   "6: CONTROL MODE",
-  "7: PAGE 7"
+  "7: STEP SEQ CONTROL"
 };
+
+unsigned long calculateStepInterval() {
+  float quarterMs = 60000.0 / seqBpm; 
+  switch (stepDivisionIndex) {
+    case 0: return (unsigned long)(quarterMs);         
+    case 1: return (unsigned long)(quarterMs / 2.0);   
+    case 2: return (unsigned long)(quarterMs / 4.0);   
+    case 3: return (unsigned long)(quarterMs / 8.0);   
+    default: return 125;
+  }
+}
+
+int getNextStep(int current, int length, int mode) {
+  if (mode == 0) return (current + 1) % length;
+  else if (mode == 1) return (current - 1 + length) % length;
+  else return random(0, length);
+}
+
+// 🎯 دالة للتحكم بألوان أسطر الليدات الرئيسية (mainLeds)
+void setMainStepLine(int lineIndex, CRGB color) {
+  if (lineIndex < 0 || lineIndex >= MATRIX_HEIGHT) return;
+  for (uint8_t x = 0; x < MATRIX_WIDTH; x++) {
+    int16_t ledIndex = XY_Table[lineIndex][x];
+    if (ledIndex != -1) {
+      mainLeds[ledIndex] = color;
+    }
+  }
+}
+
+// 🎯 تقدم الخطوات مع الحركة البصرية باللون الأصفر على mainLeds
+void advanceStepSequencer() {
+  // 🎯 1. إطفاء السطر السابق من المصفوفة الرئيسية
+  setMainStepLine(currentStep, CRGB::Black);
+
+  if (playingStepNote != -1) {
+    usbMIDI.sendNoteOff(playingStepNote, 0, 1);
+    Serial1.write(0x80); Serial1.write(playingStepNote); Serial1.write((byte)0);
+  }
+
+  uint8_t previousLed = potLedMap[currentStep];
+  subLeds[previousLed] = stepMuteState[currentStep] ? CRGB(CHSV(100, 255, BRIGHT_DIM)) : CRGB(CRGB::Red);
+
+  currentStep = getNextStep(currentStep, seqLength, playDirection);
+
+  bool rollSuccess = (random(0, 100) < stepChancePercent);
+
+  // 🎯 2. تفعيل اللون الأصفر للخطوة النشطة الحالية على المقبض والأوتار الرئيسية
+  if (stepMuteState[currentStep] && rollSuccess) {
+    playingStepNote = cMajorScale[currentStep] + transposeOffset;
+    byte targetChannel = padQuarterToneActive[currentStep] ? 2 : 1;
+    byte statusByteOn = (targetChannel == 2) ? 0x91 : 0x90;
+
+    if (targetChannel == 2) {
+      int pbVal = centToPitchBend(microtuneCentValue);
+      byte pbLsb = pbVal & 0x7F;
+      byte pbMsb = (pbVal >> 7) & 0x7F;
+      usbMIDI.sendPitchBend(pbVal, 2);
+      Serial1.write(0xE1); Serial1.write(pbLsb); Serial1.write(pbMsb);
+    }
+
+    usbMIDI.sendNoteOn(playingStepNote, 105, targetChannel);
+    Serial1.write(statusByteOn); Serial1.write(playingStepNote); Serial1.write(105);
+
+    isCurrentStepNoteActive = true;
+    
+    // إضاءة صفراء متحركة
+    subLeds[potLedMap[currentStep]] = CRGB::Yellow;
+    setMainStepLine(currentStep, CRGB::Yellow); 
+  } else {
+    playingStepNote = -1;
+    isCurrentStepNoteActive = false;
+    
+    subLeds[potLedMap[currentStep]] = stepMuteState[currentStep] ? CRGB::Cyan : CRGB::Blue;
+    setMainStepLine(currentStep, CRGB(0, 20, 50)); 
+  }
+
+  needsLedsUpdate = true;
+  valuesChangedForDisplay = true;
+}
+
+void myClockHandler() {
+  if ((workingMode == 2 || currentPage == 7) && seqRunning) {
+    static byte clockCount = 0;
+    clockCount++;
+
+    byte pulsesPerStep = 6;
+    switch(stepDivisionIndex) {
+      case 0: pulsesPerStep = 24; break;
+      case 1: pulsesPerStep = 12; break;
+      case 2: pulsesPerStep = 6;  break;
+      case 3: pulsesPerStep = 3;  break;
+    }
+
+    if (clockCount >= pulsesPerStep) { 
+      clockCount = 0;
+      advanceStepSequencer();
+    }
+  }
+}
+
+void myStartHandler() {
+  seqRunning = true;
+  currentStep = 0;
+}
+
+void myStopHandler() {
+  seqRunning = false;
+  setMainStepLine(currentStep, CRGB::Black); // إطفاء الإضاءة عند الإيقاف
+  if (playingStepNote != -1) {
+    usbMIDI.sendNoteOff(playingStepNote, 0, 1);
+    Serial1.write(0x80); Serial1.write(playingStepNote); Serial1.write((byte)0);
+    isCurrentStepNoteActive = false;
+  }
+}
 
 // =========================================================================
 // 6️⃣ دوال الإضاءة، الشاشة والتحكم بالـ SD Card
@@ -217,19 +359,15 @@ void sendMicrotuneValue(int cents) {
   Serial1.write(0xB1); Serial1.write(0x06); Serial1.write(0x02);
   
   usbMIDI.sendPitchBend(pbVal, 2); 
-  Serial1.write(0xE1); 
-  Serial1.write(lsb);
-  Serial1.write(msb);
+  Serial1.write(0xE1); Serial1.write(lsb); Serial1.write(msb);
 }
 
 void sendProgramChange(int pVal) {
   usbMIDI.sendProgramChange(pVal - 1, 1); 
   usbMIDI.sendProgramChange(pVal - 1, 2); 
   
-  Serial1.write(0xC0); 
-  Serial1.write(pVal - 1);
-  Serial1.write(0xC1); 
-  Serial1.write(pVal - 1);
+  Serial1.write(0xC0); Serial1.write(pVal - 1);
+  Serial1.write(0xC1); Serial1.write(pVal - 1);
 }
 
 void updateOledDisplay(int keyNum, int noteVal, const char* statusStr) {
@@ -250,9 +388,7 @@ void updateOledDisplay(int keyNum, int noteVal, const char* statusStr) {
   } 
   else if (currentPage == 2) {
     int instIndex = constrain(programChangeVal - 1, 0, 127);
-    display.print(programChangeVal);
-    display.print(":");
-    display.print(instrumentNames[instIndex]);
+    display.print(programChangeVal); display.print(":"); display.print(instrumentNames[instIndex]);
   }
   else if (currentPage == 3) {
     display.print("TRANS: "); display.print(transposeOffset > 0 ? "+" : ""); display.print(transposeOffset);
@@ -264,7 +400,32 @@ void updateOledDisplay(int keyNum, int noteVal, const char* statusStr) {
     display.print("RELEASE: "); display.print(noteDurationVal * 10); display.print(" ms");
   }
   else if (currentPage == 6) {
-    display.print("MODE: "); display.print(workingMode == 0 ? "SCALE/TUNE" : "MIDI CC");
+    display.print("MODE: "); 
+    if (workingMode == 0) display.print("SCALE/TUNE");
+    else if (workingMode == 1) display.print("MIDI CC");
+    else display.print("STEP SEQ");
+  }
+  else if (currentPage == 7) {
+    if (isGateSettingMode) {
+      display.print("GATE: "); display.print(stepGatePercent); display.print("% [LENGTH]");
+    }
+    else if (isTempoSettingMode) {
+      display.print("BPM: "); display.print(seqBpm); display.print(" [ADJUST]");
+    } 
+    else if (isStepsSettingMode) {
+      display.print("STEPS: "); display.print(seqLength); display.print(" [LENGTH]");
+    } 
+    else if (isChanceSettingMode) {
+      display.print("CHANCE: "); display.print(stepChancePercent); display.print("% [PROB]");
+    }
+    else {
+      display.print("DIV:"); display.print(divisionNames[stepDivisionIndex]);
+      display.print(" "); display.print(directionNames[playDirection]);
+      display.setCursor(64, 18);
+      display.print("ST:"); display.print(currentStep + 1); 
+      display.print("/"); display.print(seqLength);
+      display.print(seqRunning ? " PLAY" : " STOP");
+    }
   }
   else {
     display.print("KEY: "); display.print(keyNum);
@@ -520,7 +681,12 @@ void setup() {
   }
   
   sendMicrotuneValue(microtuneCentValue);
-  
+  sendProgramChange(programChangeVal);
+
+  usbMIDI.setHandleClock(myClockHandler);
+  usbMIDI.setHandleStart(myStartHandler);
+  usbMIDI.setHandleStop(myStopHandler);
+
   updateOledDisplay(0, 0, "IDLE");
 }
 
@@ -528,7 +694,19 @@ void setup() {
 // 8️⃣ الحلقة الرئيسية (Loop)
 // =========================================================================
 void loop() {
-  usbMIDI.read(); 
+  if (usbMIDI.read()) {
+    byte type = usbMIDI.getType();
+    
+    if (type == usbMIDI.Clock) {
+      myClockHandler();
+    }
+    else if (type == usbMIDI.Start || type == usbMIDI.Continue) {
+      myStartHandler();
+    }
+    else if (type == usbMIDI.Stop) {
+      myStopHandler();
+    }
+  }
 
   // -----------------------------------------------------------------
   // 🎯 استلام إشارات حساس الضغط والسلايدر من Uno وإرسالها لـ Ableton عبر USB
@@ -546,7 +724,6 @@ void loop() {
     else if (bufIndex > 0) {
       midiBuffer[bufIndex++] = inByte;
       
-      // 🎯 منع Pitch Bend أثناء التواجد بالصفحة 6 لعدم التعارض مع Mapping المقابض
       if ((midiBuffer[0] & 0xF0) == 0xE0 && bufIndex == 3) {
         int pbValue = midiBuffer[1] | (midiBuffer[2] << 7);
         byte channel = (midiBuffer[0] & 0x0F) + 1; 
@@ -570,14 +747,12 @@ void loop() {
     }
   }
 
-  bool needsLedsUpdate = false; 
   int activeKeyForDisplay = -1;
   int activeNoteForDisplay = -1;
   const char* activeStatusForDisplay = "IDLE";
-  bool valuesChangedForDisplay = false;
 
   // -----------------------------------------------------------------
-  // [أولاً]: فحص الأزرار الـ + والـ - (Pin 11 & Pin 12)
+  // [أولاً]: فحص الأزرار الـ + والـ - الرئيسية (Pin 11 & Pin 12)
   // -----------------------------------------------------------------
   bool plusState = (digitalRead(PIN_PLUS) == LOW);
   bool minusState = (digitalRead(PIN_MINUS) == LOW);
@@ -609,7 +784,22 @@ void loop() {
         if (noteDurationVal < 100) { noteDurationVal++; valuesChangedForDisplay = true; }
       }
       else if (currentPage == 6) { 
-        workingMode = (workingMode == 0) ? 1 : 0;
+        workingMode = (workingMode + 1) % 3;
+        if (workingMode == 2) seqRunning = true;
+        valuesChangedForDisplay = true;
+      }
+      else if (currentPage == 7) { 
+        if (isGateSettingMode) {
+          if (stepGatePercent < 100) stepGatePercent += 25;
+        } else if (isTempoSettingMode) {
+          if (seqBpm < 300) seqBpm += 5;
+        } else if (isStepsSettingMode) {
+          if (seqLength < 16) seqLength++;
+        } else if (isChanceSettingMode) {
+          if (stepChancePercent < 100) stepChancePercent += 10;
+        } else {
+          if (seqLength < 16) seqLength++;
+        }
         valuesChangedForDisplay = true;
       }
     }
@@ -643,7 +833,28 @@ void loop() {
         if (noteDurationVal > 0) { noteDurationVal--; valuesChangedForDisplay = true; }
       }
       else if (currentPage == 6) { 
-        workingMode = (workingMode == 0) ? 1 : 0;
+        workingMode = (workingMode - 1 + 3) % 3;
+        if (workingMode == 2) seqRunning = true;
+        valuesChangedForDisplay = true;
+      }
+      else if (currentPage == 7) { 
+        if (isGateSettingMode) {
+          if (stepGatePercent > 25) stepGatePercent -= 25;
+        } else if (isTempoSettingMode) {
+          if (seqBpm > 30) seqBpm -= 5;
+        } else if (isStepsSettingMode) {
+          if (seqLength > 1) {
+            seqLength--;
+            if (currentStep >= seqLength) currentStep = 0;
+          }
+        } else if (isChanceSettingMode) {
+          if (stepChancePercent > 0) stepChancePercent -= 10;
+        } else {
+          if (seqLength > 1) {
+            seqLength--;
+            if (currentStep >= seqLength) currentStep = 0;
+          }
+        }
         valuesChangedForDisplay = true;
       }
     }
@@ -680,7 +891,7 @@ void loop() {
   }
 
   // -----------------------------------------------------------------
-  // [ثالثاً]: فحص الأزرار السبعة (الربع تون الفوري + تغيير الصفحات)
+  // [ثالثاً]: فحص الأزرار السبعة
   // -----------------------------------------------------------------
   bool isPageBtnPressed = (digitalRead(SELECT_PAGE_PIN) == LOW); 
 
@@ -701,40 +912,100 @@ void loop() {
           activeNoteForDisplay = 0;
           activeStatusForDisplay = "PAGE";
         } else {
-          switch(buttonPins[i]) {
-            case 4:
-              padQuarterToneActive[0] = !padQuarterToneActive[0];
-              padQuarterToneActive[7] = !padQuarterToneActive[7];
-              padQuarterToneActive[14] = !padQuarterToneActive[14];
-              break;
-            case 5:
-              padQuarterToneActive[1] = !padQuarterToneActive[1];
-              padQuarterToneActive[8] = !padQuarterToneActive[8];
-              padQuarterToneActive[15] = !padQuarterToneActive[15];
-              break;
-            case 6:
-              padQuarterToneActive[2] = !padQuarterToneActive[2];
-              padQuarterToneActive[9] = !padQuarterToneActive[9];
-              break;
-            case 7:
-              padQuarterToneActive[3] = !padQuarterToneActive[3];
-              padQuarterToneActive[10] = !padQuarterToneActive[10];
-              break;
-            case 8:
-              padQuarterToneActive[4] = !padQuarterToneActive[4];
-              padQuarterToneActive[11] = !padQuarterToneActive[11];
-              break;
-            case 9:
-              padQuarterToneActive[5] = !padQuarterToneActive[5];
-              padQuarterToneActive[12] = !padQuarterToneActive[12];
-              break;
-            case 10:
-              padQuarterToneActive[6] = !padQuarterToneActive[6];
-              padQuarterToneActive[13] = !padQuarterToneActive[13];
-              break;
+          if (currentPage == 7) {
+            switch(i) {
+              case 0: 
+                isGateSettingMode = false;
+                isTempoSettingMode = false;
+                isStepsSettingMode = false;
+                isChanceSettingMode = false;
+                stepDivisionIndex = (stepDivisionIndex + 1) % 4;
+                valuesChangedForDisplay = true;
+                break;
+
+              case 1: 
+                isGateSettingMode = false;
+                isTempoSettingMode = false;
+                isStepsSettingMode = false;
+                isChanceSettingMode = false;
+                playDirection = (playDirection + 1) % 3;
+                valuesChangedForDisplay = true;
+                break;
+
+              case 2: // زر 3: طول النغمة (Gate)
+                isGateSettingMode = !isGateSettingMode;
+                isTempoSettingMode = false;
+                isStepsSettingMode = false;
+                isChanceSettingMode = false;
+                valuesChangedForDisplay = true;
+                break;
+
+              case 3: // زر 4: السرعة (BPM)
+                isTempoSettingMode = !isTempoSettingMode;
+                isGateSettingMode = false;
+                isStepsSettingMode = false;
+                isChanceSettingMode = false;
+                valuesChangedForDisplay = true;
+                break;
+
+              case 4: // زر 5: عدد الخطوات (Steps)
+                isStepsSettingMode = !isStepsSettingMode;
+                isGateSettingMode = false;
+                isTempoSettingMode = false;
+                isChanceSettingMode = false;
+                valuesChangedForDisplay = true;
+                break;
+
+              case 5: // زر 6: الاحتمالية (Chance)
+                isChanceSettingMode = !isChanceSettingMode;
+                isGateSettingMode = false;
+                isTempoSettingMode = false;
+                isStepsSettingMode = false;
+                valuesChangedForDisplay = true;
+                break;
+
+              case 6: // زر 7: تشغيل / إيقاف
+                seqRunning = !seqRunning;
+                valuesChangedForDisplay = true;
+                break;
+            }
+          } 
+          else {
+            switch(buttonPins[i]) {
+              case 4:
+                padQuarterToneActive[0] = !padQuarterToneActive[0];
+                padQuarterToneActive[7] = !padQuarterToneActive[7];
+                padQuarterToneActive[14] = !padQuarterToneActive[14];
+                break;
+              case 5:
+                padQuarterToneActive[1] = !padQuarterToneActive[1];
+                padQuarterToneActive[8] = !padQuarterToneActive[8];
+                padQuarterToneActive[15] = !padQuarterToneActive[15];
+                break;
+              case 6:
+                padQuarterToneActive[2] = !padQuarterToneActive[2];
+                padQuarterToneActive[9] = !padQuarterToneActive[9];
+                break;
+              case 7:
+                padQuarterToneActive[3] = !padQuarterToneActive[3];
+                padQuarterToneActive[10] = !padQuarterToneActive[10];
+                break;
+              case 8:
+                padQuarterToneActive[4] = !padQuarterToneActive[4];
+                padQuarterToneActive[11] = !padQuarterToneActive[11];
+                break;
+              case 9:
+                padQuarterToneActive[5] = !padQuarterToneActive[5];
+                padQuarterToneActive[12] = !padQuarterToneActive[12];
+                break;
+              case 10:
+                padQuarterToneActive[6] = !padQuarterToneActive[6];
+                padQuarterToneActive[13] = !padQuarterToneActive[13];
+                break;
+            }
+            updateButtonLEDs();
+            needsLedsUpdate = true;
           }
-          updateButtonLEDs();
-          needsLedsUpdate = true;
         }
       }
       lastButtonStates[i] = btnState ? LOW : HIGH;
@@ -742,12 +1013,14 @@ void loop() {
   }
 
   // -----------------------------------------------------------------
-  // [رابعاً]: قراءة المقابض الـ 16 المفلترة لمنع الاهتزاز
+  // [رابعاً]: قراءة المقابض الـ 16
   // -----------------------------------------------------------------
   for (int i = 0; i < numPots; i++) {
     int currentRaw = analogRead(potPins[i]);
 
-    if (abs(currentRaw - lastHandRaw[i]) > 45) {
+    int currentThreshold = (currentPage == 7 || workingMode == 2) ? 15 : 45;
+
+    if (abs(currentRaw - lastHandRaw[i]) > currentThreshold) {
       isHandActive[i] = true; 
     }
 
@@ -755,7 +1028,7 @@ void loop() {
       continue; 
     }
 
-    if (workingMode == 0) {
+    if (workingMode == 0 || workingMode == 2) {
       int currentNote = map(currentRaw, 0, 1023, 52, 84);
 
       if (currentNote != lastNoteValues[i]) { 
@@ -775,7 +1048,7 @@ void loop() {
         activeStatusForDisplay = "TUNE";
       }
     } 
-    else {
+    else if (workingMode == 1) {
       int rawCCValue = map(currentRaw, 0, 1023, 0, 127);
       
       if (abs(rawCCValue - lastNoteValues[i]) >= 2 || (rawCCValue == 0 && lastNoteValues[i] != 0) || (rawCCValue == 127 && lastNoteValues[i] != 127)) { 
@@ -785,9 +1058,7 @@ void loop() {
         byte ccNumber = 20 + i; 
         usbMIDI.sendControlChange(ccNumber, rawCCValue, 1); 
         
-        Serial1.write(0xB0); 
-        Serial1.write(ccNumber); 
-        Serial1.write(rawCCValue); 
+        Serial1.write(0xB0); Serial1.write(ccNumber); Serial1.write(rawCCValue); 
 
         uint8_t ledIndex = potLedMap[i];
         subLeds[ledIndex] = CHSV(160, 255, map(rawCCValue, 0, 127, 20, 255));
@@ -800,8 +1071,8 @@ void loop() {
     }
   }
 
- // -----------------------------------------------------------------
-  // [خامساً]: قراءة حساس اللمس (Trill) - نمط العزف الموسيقي الطبيعي
+  // -----------------------------------------------------------------
+  // [خامساً]: قراءة حساس اللمس (Trill) - دمج Mute مع العزف
   // -----------------------------------------------------------------
   if (isSensorOnline) {
     trillSensor.requestRawData();
@@ -814,86 +1085,121 @@ void loop() {
       
       uint8_t ledIndex = potLedMap[pinCounter];
 
-      byte targetChannel = padQuarterToneActive[pinCounter] ? 2 : 1;
-      byte statusByteOn = (targetChannel == 2) ? 0x91 : 0x90; 
-      byte statusByteOff = (targetChannel == 2) ? 0x81 : 0x80; 
+      if (currentPage == 7 || workingMode == 2) {
+        if (rawTouchValue >= touchThreshold) {
+          if (!isTouchHandled[pinCounter]) {
+            isTouchHandled[pinCounter] = true; 
 
-      // 1. لحظة اللمس (عزف النغمة ON)
-      if (rawTouchValue > touchThreshold) {
-        pendingNoteOff[pinCounter] = false; // إلغاء أي أمر إيقاف معلق
-        
-        if (!noteStates[pinCounter]) {
-          if (targetChannel == 2) {
-            int pbVal = centToPitchBend(microtuneCentValue);
-            byte pbLsb = pbVal & 0x7F;
-            byte pbMsb = (pbVal >> 7) & 0x7F;
-            
-            Serial1.write(0xB1); Serial1.write(0x65); Serial1.write(0x00);
-            Serial1.write(0xB1); Serial1.write(0x64); Serial1.write(0x00);
-            Serial1.write(0xB1); Serial1.write(0x06); Serial1.write(0x02);
-            
-            usbMIDI.sendPitchBend(pbVal, 2); 
-            Serial1.write(0xE1); 
-            Serial1.write(pbLsb);
-            Serial1.write(pbMsb);
+            stepMuteState[pinCounter] = !stepMuteState[pinCounter];
+
+            subLeds[ledIndex] = stepMuteState[pinCounter] ? CRGB(CHSV(100, 255, BRIGHT_DIM)) : CRGB(CRGB::Red);
+
+            needsLedsUpdate = true;
+            activeKeyForDisplay = pinCounter + 1;
+            activeNoteForDisplay = midiNote;
+            activeStatusForDisplay = stepMuteState[pinCounter] ? " ON " : "MUT ";
+            valuesChangedForDisplay = true;
           }
+        } 
+        else if (rawTouchValue < releaseThreshold) {
+          isTouchHandled[pinCounter] = false; 
+        }
+      }
+      else {
+        byte targetChannel = padQuarterToneActive[pinCounter] ? 2 : 1;
+        byte statusByteOn = (targetChannel == 2) ? 0x91 : 0x90; 
+        byte statusByteOff = (targetChannel == 2) ? 0x81 : 0x80; 
 
-          usbMIDI.sendNoteOn(midiNote, 105, targetChannel); 
-          Serial1.write(statusByteOn); 
-          Serial1.write(midiNote);
-          Serial1.write(105);  
-
-          setMainLineState(pinCounter, true); 
+        if (rawTouchValue > touchThreshold) {
+          pendingNoteOff[pinCounter] = false; 
           
+          if (!noteStates[pinCounter]) {
+            if (targetChannel == 2) {
+              int pbVal = centToPitchBend(microtuneCentValue);
+              byte pbLsb = pbVal & 0x7F;
+              byte pbMsb = (pbVal >> 7) & 0x7F;
+              
+              Serial1.write(0xB1); Serial1.write(0x65); Serial1.write(0x00);
+              Serial1.write(0xB1); Serial1.write(0x64); Serial1.write(0x00);
+              Serial1.write(0xB1); Serial1.write(0x06); Serial1.write(0x02);
+              
+              usbMIDI.sendPitchBend(pbVal, 2); 
+              Serial1.write(0xE1); Serial1.write(pbLsb); Serial1.write(pbMsb);
+            }
+
+            usbMIDI.sendNoteOn(midiNote, 105, targetChannel); 
+            Serial1.write(statusByteOn); Serial1.write(midiNote); Serial1.write(105);  
+
+            setMainLineState(pinCounter, true); 
+            uint8_t noteHue = map(originalNote, 52, 84, 0, 255);
+            subLeds[ledIndex] = CHSV(noteHue, 255, BRIGHT_FULL);
+
+            needsLedsUpdate = true;
+            noteStates[pinCounter] = true;
+
+            activeKeyForDisplay = pinCounter + 1;
+            activeNoteForDisplay = midiNote;
+            activeStatusForDisplay = (targetChannel == 2) ? "QT " : "ON ";
+          }
+        } 
+        else if (rawTouchValue < releaseThreshold && noteStates[pinCounter] && !pendingNoteOff[pinCounter]) {
+          pendingNoteOff[pinCounter] = true;
+          noteReleaseTime[pinCounter] = millis() + (noteDurationVal * 10); 
+        }
+
+        if (pendingNoteOff[pinCounter] && millis() >= noteReleaseTime[pinCounter]) {
+          usbMIDI.sendNoteOff(midiNote, 0, targetChannel); 
+          Serial1.write(statusByteOff); Serial1.write(midiNote); Serial1.write(0);    
+
+          setMainLineState(pinCounter, false); 
           uint8_t noteHue = map(originalNote, 52, 84, 0, 255);
-          subLeds[ledIndex] = CHSV(noteHue, 255, BRIGHT_FULL);
+          subLeds[ledIndex] = CHSV(noteHue, 255, BRIGHT_DIM);
 
           needsLedsUpdate = true;
-          noteStates[pinCounter] = true;
+          noteStates[pinCounter] = false;
+          pendingNoteOff[pinCounter] = false;
 
           activeKeyForDisplay = pinCounter + 1;
           activeNoteForDisplay = midiNote;
-          activeStatusForDisplay = (targetChannel == 2) ? "QT " : "ON ";
+          activeStatusForDisplay = "OFF";
         }
-      } 
-      // 2. لحظة رفع الأصبع (جدولة إيقاف النغمة OFF بناءً على الصفحة 5)
-      else if (rawTouchValue < releaseThreshold && noteStates[pinCounter] && !pendingNoteOff[pinCounter]) {
-        pendingNoteOff[pinCounter] = true;
-        noteReleaseTime[pinCounter] = millis() + (noteDurationVal * 10); 
-      }
-
-      // 3. تنفيذ إيقاف النغمة بعد انقضاء وقت التلاشي (Release)
-      if (pendingNoteOff[pinCounter] && millis() >= noteReleaseTime[pinCounter]) {
-        usbMIDI.sendNoteOff(midiNote, 0, targetChannel); 
-        Serial1.write(statusByteOff); 
-        Serial1.write(midiNote);
-        Serial1.write(0);    
-
-        setMainLineState(pinCounter, false); 
-        
-        uint8_t noteHue = map(originalNote, 52, 84, 0, 255);
-        subLeds[ledIndex] = CHSV(noteHue, 255, BRIGHT_DIM);
-
-        needsLedsUpdate = true;
-        noteStates[pinCounter] = false;
-        pendingNoteOff[pinCounter] = false;
-
-        activeKeyForDisplay = pinCounter + 1;
-        activeNoteForDisplay = midiNote;
-        activeStatusForDisplay = "OFF";
       }
 
       pinCounter++; 
     }
   }
-  
+
+  // -----------------------------------------------------------------
+  // 🎯 [سادساً]: مشغل الـ Step Sequencer بوضع Standalone
+  // -----------------------------------------------------------------
+  if ((workingMode == 2 || currentPage == 7) && seqRunning) {
+    unsigned long currentMillis = millis();
+    unsigned long stepInterval = calculateStepInterval();
+    unsigned long gateInterval = (stepInterval * stepGatePercent) / 100; 
+
+    if (isCurrentStepNoteActive && (currentMillis - lastStepTime >= gateInterval)) {
+      if (playingStepNote != -1) {
+        usbMIDI.sendNoteOff(playingStepNote, 0, 1);
+        Serial1.write(0x80); Serial1.write(playingStepNote); Serial1.write((byte)0);
+        isCurrentStepNoteActive = false;
+      }
+    }
+
+    if (currentMillis - lastStepTime >= stepInterval) {
+      lastStepTime = currentMillis;
+      advanceStepSequencer();
+    }
+  }
+
   if (needsLedsUpdate) {
     FastLED.show();
+    needsLedsUpdate = false;
   }
 
   if ((activeKeyForDisplay != -1 || valuesChangedForDisplay) && (millis() - lastDisplayTime > displayInterval)) {
     updateOledDisplay(activeKeyForDisplay, activeNoteForDisplay, activeStatusForDisplay);
     lastDisplayTime = millis();
+    valuesChangedForDisplay = false;
   }
 
   delay(2); 
