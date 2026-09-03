@@ -39,18 +39,18 @@ const int16_t XY_Table[MATRIX_HEIGHT][MATRIX_WIDTH] = {
   {17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34},
   {51, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, -1},
   {52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, -1, -1},
-  {82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, -1, -1, -1},
-  {83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, -1, -1, -1, -1},
-  {109, 108, 107, 106, 105, 104, 103, 102, 101, 100, 99, 98, 97, -1, -1, -1, -1, -1},
-  {110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, -1, -1, -1, -1, -1, -1},
-  {133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122, -1, -1, -1, -1, -1, -1},
+  { 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68,-1, -1, -1, -1},
+  {83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, -1, -1, -1, -1, -1},
+  {108, 107, 106, 105, 104, 103, 102, 101, 100, 99, 98, 97,96,-1, -1, -1, -1, -1},
+  {109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, -1, -1, -1, -1, -1, -1},
+  {132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122,121, -1, -1, -1, -1, -1, -1},
   {134, 135, 136, 137, 138, 139, 140, 141, 142, 143, -1, -1, -1, -1, -1, -1, -1, -1},
-  {154, 153, 152, 151, 150, 149, 148, 147, 146, 145, -1, -1, -1, -1, -1, -1, -1, -1},
-  {156, 157, 158, 159, 160, 161, 162, 163, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
-  {171, 170, 169, 168, 167, 166, 165, 164, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
-  {172, 173, 174, 175, 176, 177, 178, 179, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
-  {186, 185, 184, 183, 182, 181, 180, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
-  {187, 188, 189, 190, 191, 192, 193, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
+  { 153, 152, 151, 150, 149, 148, 147, 146, 145,144,-1, -1, -1, -1, -1, -1, -1, -1},
+  {154, 155, 156, 157, 158, 159, 160, 161, 162, -1,-1, -1, -1, -1, -1, -1, -1, -1},
+  {170, 169, 168, 167, 166, 165, 164,163,-1, -1, -1, -1, -1, -1, -1, -1, -1,-1},
+  {171,172, 173, 174, 175, 176, 177, 178, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+  {185, 184, 183, 182, 181, 180,-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+  {186,187, 188, 189, 190, 191, 192, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
 };
 
 // =========================================================================
@@ -127,16 +127,17 @@ const char* instrumentNames[128] = {
 // =========================================================================
 // 5️⃣ إعدادات الصفحات وإعدادات الـ Step Sequencer
 // =========================================================================
-#define SELECT_PAGE_PIN 29
-#define SAVE_LOAD_PIN   28  
-#define PIN_PLUS        11
-#define PIN_MINUS       12
+#define SELECT_PAGE_PIN 10
+#define SAVE_LOAD_PIN   9  
+#define PIN_PLUS        12
+#define PIN_MINUS       11
 
 const int numPageButtons = 7;
-const int buttonPins[numPageButtons] = {4, 5, 6, 7, 8, 9, 10}; 
+const int buttonPins[numPageButtons] = {29, 28, 4, 5, 6, 7, 8}; 
 
 bool lastButtonStates[numPageButtons] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
 const uint8_t buttonLedMap[numPageButtons] = {6, 5, 4, 3, 2, 1, 0}; 
+
 
 bool padQuarterToneActive[numKeys] = {false}; 
 int currentPage = 1; 
@@ -314,13 +315,13 @@ void updateButtonLEDs() {
   for (int i = 0; i < numPageButtons; i++) {
     bool isGroupActive = false;
     switch(buttonPins[i]) {
-      case 4:  isGroupActive = (padQuarterToneActive[0] || padQuarterToneActive[7] || padQuarterToneActive[14]); break;
-      case 5:  isGroupActive = (padQuarterToneActive[1] || padQuarterToneActive[8] || padQuarterToneActive[15]); break;
-      case 6:  isGroupActive = (padQuarterToneActive[2] || padQuarterToneActive[9]); break; 
-      case 7:  isGroupActive = (padQuarterToneActive[3] || padQuarterToneActive[10]); break;
-      case 8:  isGroupActive = (padQuarterToneActive[4] || padQuarterToneActive[11]); break;
-      case 9:  isGroupActive = (padQuarterToneActive[5] || padQuarterToneActive[12]); break;
-      case 10: isGroupActive = (padQuarterToneActive[6] || padQuarterToneActive[13]); break;
+       case 29:  isGroupActive = (padQuarterToneActive[0] || padQuarterToneActive[7] || padQuarterToneActive[14]); break;
+      case 28:  isGroupActive = (padQuarterToneActive[1] || padQuarterToneActive[8] || padQuarterToneActive[15]); break;
+      case 4:  isGroupActive = (padQuarterToneActive[2] || padQuarterToneActive[9]); break; 
+      case 5:  isGroupActive = (padQuarterToneActive[3] || padQuarterToneActive[10]); break;
+      case 6:  isGroupActive = (padQuarterToneActive[4] || padQuarterToneActive[11]); break;
+      case 7:  isGroupActive = (padQuarterToneActive[5] || padQuarterToneActive[12]); break;
+      case 8: isGroupActive = (padQuarterToneActive[6] || padQuarterToneActive[13]); break;
     }
     uint8_t physicalLedIndex = buttonLedMap[i];
     subLeds[physicalLedIndex] = isGroupActive ? CRGB::Blue : CRGB::Black;
@@ -1204,3 +1205,4 @@ void loop() {
 
   delay(2); 
 }
+
