@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>وثيقة ترقية النظام: ESP32-S3 MIDI Controller</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 15mm 18mm 15mm;
+    @bottom-center {
+      content: counter(page) " / " counter(pages);
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      font-size: 8pt;
+      color: #718096;
+    }
+  }
+  
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.45;
+    color: #1a202c;
+    background-color: #ffffff;
+    margin: 0;
+    padding: 0;
+    font-size: 9.5pt;
+  }
+
+  .header {
+    border-bottom: 2px solid #2b6cb0;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  .title-area h1 {
+    font-size: 16pt;
+    color: #2b6cb0;
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+
+  .title-area p {
+    margin: 0;
+    font-size: 9pt;
+    color: #4a5568;
+  }
+
+  .meta-tag {
+    font-size: 8pt;
+    background: #edf2f7;
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: #2d3748;
+    text-align: left;
+    direction: ltr;
+  }
+
+  h2 {
+    font-size: 11.5pt;
+    color: #2d3748;
+    border-right: 4px solid #3182ce;
+    padding-right: 8px;
+    margin: 14px 0 8px 0;
+    font-weight: 600;
+  }
+
+  p {
+    margin: 0 0 8px 0;
+    color: #2d3748;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+    font-size: 8.5pt;
+  }
+
+  th, td {
+    border: 1px solid #cbd5e0;
+    padding: 5px 8px;
+    text-align: right;
+  }
+
+  th {
+    background-color: #ebf8ff;
+    color: #2b6cb0;
+    font-weight: 600;
+  }
+
+  tr:nth-child(even) {
+    background-color: #f7fafc;
+  }
+
+  .code-font {
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+    direction: ltr;
+    display: inline-block;
+    color: #c53030;
+  }
+
+  .badge {
+    background-color: #e2e8f0;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 7.5pt;
+    color: #4a5568;
+  }
+
+  .note-box {
+    background-color: #fffaf0;
+    border-right: 3px solid #dd6b20;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 8pt;
+    color: #7b341e;
+  }
+
+  .page-break {
+    page-break-before: always;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="title-area">
+    <h1>مخطط ترقية النظام إلى ESP32-S3</h1>
+    <p>وثيقة التوصيل المحدثة، قائمة المشتريات، والمواصفات الفنية للمنظومة الموسيقية</p>
+  </div>
+  <div class="meta-tag">Target: ESP32-S3 (N16R8 / N8R2)</div>
+</div>
+
+<h2>1. المواصفات الفنية للمتحكم المعتمد (ESP32-S3)</h2>
+<table>
+  <tr>
+    <th style="width: 25%;">المعيار الفني</th>
+    <th>المواصفات والتفاصيل التشغيلية</th>
+  </tr>
+  <tr>
+    <td><strong>المعالج والسرعة</strong></td>
+    <td>معالج ثنائي النواة Xtensa® 32-bit LX7 بتردد يصل إلى 240 MHz (يدعم عمليات الذكاء والـ DSP العتادية).</td>
+  </tr>
+  <tr>
+    <td><strong>الذاكرة التشغيلية</strong></td>
+    <td>512 KB SRAM داخلية + 8 MB (أو 2 MB) PSRAM عالية السرعة (Octal/Quad SPI).</td>
+  </tr>
+  <tr>
+    <td><strong>ذاكرة التخزين</strong></td>
+    <td>8 MB إلى 16 MB Flash خارجي مدمج بالموديول لحفظ الإعدادات والمقامات والبيانات الموسيقية.</td>
+  </tr>
+  <tr>
+    <td><strong>واجهة USB</strong></td>
+    <td>منفذ Full-Speed USB OTG مدمج يدعم بروتوكول Native USB-MIDI كجهاز Class-Compliant مباشر.</td>
+  </tr>
+  <tr>
+    <td><strong>قيادة الإضاءة</strong></td>
+    <td>وحدة عتادية مخصصة (RMT - Remote Control Peripheral) لبث بيانات WS2812B بالـ DMA بدون وميض.</td>
+  </tr>
+  <tr>
+    <td><strong>دبابيس التوصيل</strong></td>
+    <td>حتى 36 دبوس GPIO حقيقي متاح للربط السلس مع كافة الأجهزة الفرعية والشاشة.</td>
+  </tr>
+</table>
+
+<h2>2. المشتريات والمكونات المطلوبة (Bill of Materials)</h2>
+<table>
+  <tr>
+    <th style="width: 5%;">#</th>
+    <th style="width: 32%;">المكون</th>
+    <th style="width: 38%;">المواصفات المطلوبة</th>
+    <th style="width: 25%;">ملاحظات التوريد</th>
+  </tr>
+  <tr>
+    <td>1</td>
+    <td><strong>ESP32-S3 Development Board</strong></td>
+    <td>ESP32-S3-DevKitC-1 (يفضل إصدار N16R8 أو N8R2) - 44 Pin</td>
+    <td>يضمن توفر مساحة الـ PSRAM لمعالجة الجرافيكس.</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><strong>شاشة OLED 2.7 إنش</strong></td>
+    <td>256x64 بدقة عالية، شريحة قيادة SSD1322، واجهة SPI (7-Pins)</td>
+    <td>عرض المقامات، الأوتار، وحساب السنتات.</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><strong>مبدل تشابهي CD4067 (Multiplexer)</strong></td>
+    <td>موديول أو شريحة 16-Channel Analog Multiplexer (CD4067BE)</td>
+    <td>لقراءة الـ 16 Potentiometer على مدخل ADC واحد.</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><strong>قارئ MicroSD خارجي</strong></td>
+    <td>موديول MicroSD SPI قياسي (3.3V Logic)</td>
+    <td>لحفظ التعيينات (بديل لمنفذ Teensy المدمج).</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td><strong>مقاومات Pull-up</strong></td>
+    <td>مقاومات سلكية أو سطحية بقيمة 4.7kΩ (عدد 2)</td>
+    <td>لتثبيت خطوط ناقل I2C (SDA/SCL).</td>
+  </tr>
+</table>
+
+<div class="note-box">
+  <strong>تنبيه دبابيس الإقلاع (Strapping Pins):</strong> تم تفادي استخدام الدبابيس (GPIO 0, GPIO 3, GPIO 45, GPIO 46) في وظائف الدخل الحساسة أو المقاومات لضمان إقلاع الشريحة في الوضع التشغيلي الطبيعي دائماً.
+</div>
+
+<div class="page-break"></div>
+
+<h2>3. خارطة توزيع الدبابيس الجديدة (Pin Mapping Matrix)</h2>
+
+<p><strong>أ. نواقل الاتصال المشتركة (Buses & Communication)</strong></p>
+<table>
+  <tr>
+    <th style="width: 20%;">دبوس ESP32-S3</th>
+    <th style="width: 25%;">المكون المرتبط</th>
+    <th style="width: 20%;">الدبوس الفرعي</th>
+    <th>الوظيفة والبروتوكول</th>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 8</span></td>
+    <td>Trill Craft (I2C)</td>
+    <td>SDA</td>
+    <td>خط بيانات اللمس المشترك (I2C SDA) مع مقاومة 4.7kΩ لـ 3.3V</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 9</span></td>
+    <td>Trill Craft (I2C)</td>
+    <td>SCL</td>
+    <td>خط ساعة اللمس المشترك (I2C SCL) مع مقاومة 4.7kΩ لـ 3.3V</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 12</span></td>
+    <td>SSD1322 + MicroSD</td>
+    <td>SCK / D0 / CLK</td>
+    <td>ناقل الـ SPI المشترك: خط الساعة الرئيسي (SPI Clock)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 11</span></td>
+    <td>SSD1322 + MicroSD</td>
+    <td>MOSI / D1 / DI</td>
+    <td>ناقل الـ SPI المشترك: خروج البيانات للوحدات (SPI MOSI)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 13</span></td>
+    <td>MicroSD Reader</td>
+    <td>MISO / DO</td>
+    <td>قراءة بيانات بطاقة التخزين (SPI MISO)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 10</span></td>
+    <td>شاشة OLED (SSD1322)</td>
+    <td>CS</td>
+    <td>تفعيل الشاشة (Display Chip Select)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 14</span></td>
+    <td>شاشة OLED (SSD1322)</td>
+    <td>DC</td>
+    <td>تحديد الأوامر/البيانات للشاشة (Data / Command)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 21</span></td>
+    <td>شاشة OLED (SSD1322)</td>
+    <td>RES</td>
+    <td>إعادة تعيين الشاشة (Hardware Reset)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 47</span></td>
+    <td>MicroSD Reader</td>
+    <td>CS</td>
+    <td>تفعيل قراءة بطاقة الـ SD (SD Chip Select)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 43</span></td>
+    <td>محرك الصوت / Serial MIDI</td>
+    <td>TXD</td>
+    <td>منفذ Serial إرسال الـ MIDI (UART0 / UART1 TX)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 44</span></td>
+    <td>مدخل MIDI الخارجي</td>
+    <td>RXD</td>
+    <td>منفذ Serial استقبال الـ MIDI (UART0 / UART1 RX)</td>
+  </tr>
+</table>
+
+<p><strong>ب. شرائط الإضاءة التفاعلية (WS2812B Addressable LEDs)</strong></p>
+<table>
+  <tr>
+    <th style="width: 20%;">دبوس ESP32-S3</th>
+    <th style="width: 25%;">المكون</th>
+    <th style="width: 20%;">عدد الليدات</th>
+    <th>الوظيفة والآلية العتادية</th>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 17</span></td>
+    <td>Main Strip (Data In)</td>
+    <td>194 LED</td>
+    <td>الشريط الرئيسي - يُقاد عبر قناة RMT العتادية بالـ DMA</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 18</span></td>
+    <td>Sub Strip (Data In)</td>
+    <td>23 LED</td>
+    <td>الشريط الفرعي - يُقاد عبر قناة RMT الثانية</td>
+  </tr>
+</table>
+
+<p><strong>ج. وحدة قراءة المقابض الـ 16 التناظرية (CD4067 Multiplexer)</strong></p>
+<table>
+  <tr>
+    <th style="width: 20%;">دبوس ESP32-S3</th>
+    <th style="width: 25%;">طرف الـ CD4067</th>
+    <th style="width: 20%;">نوع الإشارة</th>
+    <th>الوظيفة</th>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 1</span></td>
+    <td>SIG (Common Out)</td>
+    <td>Analog In (ADC1)</td>
+    <td>قراءة الجهد التناظري للمقبض النشط (Pots 1-16)</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 2</span></td>
+    <td>S0 (Address Bit 0)</td>
+    <td>Digital Out</td>
+    <td>بت التحكم الأول لاختيار القناة</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 4</span></td>
+    <td>S1 (Address Bit 1)</td>
+    <td>Digital Out</td>
+    <td>بت التحكم الثاني لاختيار القناة</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 5</span></td>
+    <td>S2 (Address Bit 2)</td>
+    <td>Digital Out</td>
+    <td>بت التحكم الثالث لاختيار القناة</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 6</span></td>
+    <td>S3 (Address Bit 3)</td>
+    <td>Digital Out</td>
+    <td>بت التحكم الرابع لاختيار القناة</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GND</span></td>
+    <td>EN (Enable)</td>
+    <td>Power GND</td>
+    <td>تفعيل الشريحة بشكل دائم (Active-Low)</td>
+  </tr>
+</table>
+
+<p><strong>د. أزرار التحكم وأزرار الربع تون (11 أزرار - INPUT_PULLUP)</strong></p>
+<table>
+  <tr>
+    <th style="width: 20%;">دبوس ESP32-S3</th>
+    <th style="width: 25%;">الزر / المدخل</th>
+    <th style="width: 20%;">النوع المنطقي</th>
+    <th>الوصف الوظيفي</th>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 7</span></td>
+    <td>Select Page</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر اختيار وتمرير صفحات الإعدادات</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 15</span></td>
+    <td>Save / Load</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر حفظ واسترجاع الإعدادات من الـ SD Card</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 16</span></td>
+    <td>Plus Button (+)</td>
+    <td>INPUT_PULLUP</td>
+    <td>زيادة القيم وتعديل المعايير</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 38</span></td>
+    <td>Minus Button (-)</td>
+    <td>INPUT_PULLUP</td>
+    <td>تقليل القيم وتعديل المعايير</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 39</span></td>
+    <td>Quarter Tone 1</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر الربع تون للمجموعة رقم 1</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 40</span></td>
+    <td>Quarter Tone 2</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر الربع تون للمجموعة رقم 2</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 41</span></td>
+    <td>Quarter Tone 3</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر الربع تون للمجموعة رقم 3</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 42</span></td>
+    <td>Quarter Tone 4</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر الربع تون للمجموعة رقم 4</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 48</span></td>
+    <td>Quarter Tone 5</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر الربع تون للمجموعة رقم 5</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 19</span></td>
+    <td>Quarter Tone 6</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر الربع تون للمجموعة رقم 6</td>
+  </tr>
+  <tr>
+    <td><span class="code-font">GPIO 20</span></td>
+    <td>Quarter Tone 7</td>
+    <td>INPUT_PULLUP</td>
+    <td>زر الربع تون للمجموعة رقم 7</td>
+  </tr>
+</table>
+
+</body>
+</html>
