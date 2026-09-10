@@ -1,4 +1,4 @@
-# MIDI Qanun Project
+ # MIDI Qanun Project
 
 A next-generation, desktop-sized electronic zither that bridges the rich musical heritage of the Middle Eastern Qanun and the Asian Gayageum with modern MIDI and digital synthesis. 
 
@@ -16,20 +16,31 @@ The MIDI Qanun is designed for modern bedroom producers and musicians who seek t
 *   **Standalone Synthesis:** Powered by an **ESP32-S3** (utilizing 8MB PSRAM), the instrument processes its own audio natively using an SF2 SoundFont engine, eliminating the strict need for external computers.
 *   **Organic Modulation:** An integrated FSR (Force Sensing Resistor) strip allows for natural, pressure-based vibrato and pitch bending, mimicking the technique of pressing a physical string behind the bridge.
 
-## 🛠️ Hardware Stack
+## 🛠️ Hardware Evolution & Stack
 
-The hardware is designed for modularity and ease of maintenance, with a focus on seamless I2C integration and efficient GPIO routing.
+Hardware design is a continuous evolution in this project. While the current primary development focuses on the cost-effective and powerful **ESP32-S3**, the repository proudly archives and supports earlier iterations built on the **Teensy** and **Daisy Seed** platforms, allowing makers to use the hardware they already have.
 
+**Current Primary Setup:**
 *   **Microcontroller:** ESP32-S3 (Socketed via machine pin headers for easy swapping/upgrades).
 *   **Touch Controller:** Trill Craft capacitive sensor (I2C Address: `0x28`).
 *   **Multiplexing:** CD4067BE 16-channel analog multiplexer for the tuning knobs and Velostat pressure pads.
 *   **Display:** 128x64 OLED Screen (I2C Address: `0x3D`) + Rotary Encoder for UI navigation.
 *   **Top Surface:** A custom graphic overlay sitting on top of the continuous ITO sheet for a sleek, professional finish.
-*   **PCB Design:** Custom layout designed in KiCad, optimized for JLCPCB SMT assembly.
 
 ## 📁 Repository Structure
 
 ```text
+Qanun-project/
+├── Hardware/                 # KiCad project files, schematics, and PCB layouts
+│   ├── Gerber/               # Exported manufacturing files for JLCPCB
+│   └── 3D_Models/            # STEP files for the enclosure and custom panels
+├── Firmware/                 # Source code organized by microcontroller
+│   ├── ESP32-S3/             # (Active) Main logic, SF2 synth engine, and Trill I2C integration
+│   ├── Teensy/               # (Archive/Alt) Firmware for Teensy 3.2 / 4.1 architectures
+│   └── Daisy_Seed/           # (Archive/Alt) Firmware for the Daisy Seed audio platform
+├── Assets/                   # SoundFont (SF2) files and UI graphic overlay designs (PDF/DXF)
+└── README.md
+
 Qanun-project/
 ├── Hardware/               # KiCad project files, schematics, and PCB layouts
 │   ├── Gerber/             # Exported manufacturing files for JLCPCB
