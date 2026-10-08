@@ -41,17 +41,20 @@ class FxDelay {
 public:
     FxDelay() {}
 
-    inline void init() {
-        delayLine_l = (float*)heap_caps_calloc(1, sizeof(float) * MAX_DELAY, MALLOC_CAP);
-        delayLine_r = (float*)heap_caps_calloc(1, sizeof(float) * MAX_DELAY, MALLOC_CAP);
+   inline void init() {
+        // حجز الذاكرة مع تحديد أنها 32-bit (مهم جداً لنقاء الصوت مع الـ float)
+        uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_32BIT;
+        
+        // الطريقة الصحيحة لاستدعاء calloc: (عدد العناصر، حجم العنصر الواحد)
+        delayLine_l = (float*)heap_caps_calloc(MAX_DELAY, sizeof(float), caps);
+        delayLine_r = (float*)heap_caps_calloc(MAX_DELAY, sizeof(float), caps);
 
         if (!delayLine_l || !delayLine_r) {
-            ESP_LOGI("Delay","DELAY: Memory allocation failed");
+            ESP_LOGE("Delay", "DELAY: Memory allocation failed! PSRAM is full.");
         } else {
-            ESP_LOGI("Delay","DELAY: Memory allocated");
+            ESP_LOGI("Delay", "DELAY: Memory allocated successfully");
+            reset(); // تصفير المخزن فقط إذا نجح الحجز
         }
-
-        reset();
     }
 
     inline void reset() {

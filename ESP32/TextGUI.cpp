@@ -1,5 +1,4 @@
 #include <Wire.h>
-
 #include "config.h"
 
 #ifdef ENABLE_GUI
@@ -9,7 +8,7 @@
 #include <SPI.h>
 #include <functional>
 #include <new> 
-
+#include <math.h> // مطلوب لدوال sin و cos لرسم الأقواس
 
 MenuItem::MenuItem() {
     type = MenuItemType::ACTION;
@@ -19,7 +18,6 @@ MenuItem::MenuItem() {
 MenuItem::MenuItem(MenuItem&& other) noexcept {
     moveFrom(std::move(other));
 }
-
 
 // Copy constructor
 MenuItem::MenuItem(const MenuItem& other) {
@@ -47,8 +45,6 @@ MenuItem::MenuItem(const MenuItem& other) {
     }
 }
 
-
-
 // Copy assignment operator
 MenuItem& MenuItem::operator=(const MenuItem& other) {
     if (this != &other) {
@@ -57,6 +53,7 @@ MenuItem& MenuItem::operator=(const MenuItem& other) {
     }
     return *this;
 }
+
 // Move -"-
 MenuItem& MenuItem::operator=(MenuItem&& other) noexcept {
     if (this != &other) {
@@ -65,7 +62,6 @@ MenuItem& MenuItem::operator=(MenuItem&& other) noexcept {
     }
     return *this;
 }
-
 
 MenuItem::~MenuItem() {
     destroyCurrent();
@@ -90,8 +86,6 @@ void MenuItem::destroyCurrent() {
             break;
     }
 }
-
-
 
 void MenuItem::moveFrom(MenuItem&& other) {
     title = std::move(other.title);
@@ -122,7 +116,6 @@ void MenuItem::moveFrom(MenuItem&& other) {
     other.type = MenuItemType::ACTION;
     new (&other.command.action) MenuAction(nullptr);
 }
-
 
 // Factory methods
 MenuItem MenuItem::Submenu(const String& title, MenuGenerator generator) {
@@ -173,7 +166,6 @@ MenuItem MenuItem::Value(const String& title, ValueGetter getter, ValueSetter se
     return item;
 }
 
-
 MenuItem MenuItem::Custom(const String& title, 
                         std::function<void(TextGUI&, U8G2&, int, int)> drawFn,
                         MenuAction action) {
@@ -196,36 +188,23 @@ TextGUI::TextGUI(Synth& synthRef, SynthState& stateRef) :
     , encA(0), encB(0), btnState(0)
     {}
 
-
 void TextGUI::begin() {
 
     pinMode(ENC0_A_PIN, SIG_INPUT_MODE);
     pinMode(ENC0_B_PIN, SIG_INPUT_MODE);
-//pinMode(BTN0_PIN, SIG_INPUT_MODE);
 
 #if defined(DISPLAY_INTERFACE_HW_I2C)
-
-    // HW I2C: peripheral controls pins
     Wire.begin(DISPLAY_SDA, DISPLAY_SCL);
-
 #elif defined(DISPLAY_INTERFACE_SW_I2C)
-
-    // SW I2C: u8g2 bitbang > we must drive pins
     pinMode(DISPLAY_SDA, OUTPUT);
     pinMode(DISPLAY_SCL, OUTPUT);
     digitalWrite(DISPLAY_SDA, HIGH);
     digitalWrite(DISPLAY_SCL, HIGH);
-
 #elif defined(DISPLAY_INTERFACE_HW_SPI)
-
-    // HW SPI: init bus (use custom pins if needed)
-    // SPI.begin(); 
-    // or:
-    SPI.begin(DISPLAY_SCL, U8X8_PIN_NONE, DISPLAY_SDA, DISPLAY_CS);
-
+    // توجيه دبابيس الهاردوير SPI قسرياً إلى دبابيس الشاشة الجديدة
+    SPI.end(); 
+    SPI.begin(DISPLAY_SCL, -1, DISPLAY_SDA, -1); 
 #elif defined(DISPLAY_INTERFACE_SW_SPI)
-
-    // SW SPI: u8g2 bitbang > we must drive pins
     pinMode(DISPLAY_SCL, OUTPUT);   // CLK
     pinMode(DISPLAY_SDA, OUTPUT);   // MOSI
     pinMode(DISPLAY_CS, OUTPUT);
@@ -235,8 +214,12 @@ void TextGUI::begin() {
 
     digitalWrite(DISPLAY_SCL, LOW);
     digitalWrite(DISPLAY_SDA, LOW);
-
 #endif
+
+    // الخطوة السحرية: ضبط السرعة على 10 ميجاهرتز (أقصى سرعة مستقرة لشاشات SSD1322)
+    #if defined(DISPLAY_INTERFACE_HW_SPI) || defined(DISPLAY_INTERFACE_SW_SPI)
+        display.setBusClock(10000000); 
+    #endif
 
     display.begin();
 
@@ -266,12 +249,17 @@ void TextGUI::startMenu() {
 void TextGUI::process() {
     encoder.process();
     button.process();
-
 }
 
 void TextGUI::draw() {
-    if (partialDisplayUpdate() == 0) {
+    static unsigned long lastUpdate = 0;
+    
+    // تحديث الشاشة فقط عند تحريك الإنكودر، أو كل 200 ملي ثانية لتحديث شريط الحالة السفلي
+    if (needsRedraw || millis() - lastUpdate > 200) {
         renderDisplay();
+        display.sendBuffer(); // إرسال الشاشة دفعة واحدة بسرعة هائلة
+        needsRedraw = false;
+        lastUpdate = millis();
     }
 }
 
@@ -289,90 +277,196 @@ void TextGUI::fullUpdate() {
     display.sendBuffer();
 }
 
-
 void TextGUI::renderMenu() {
     if (menuStack.empty()) return;
-       
+
     auto& current = menuStack.back();
-    const uint8_t lineHeight = 10;
-    const uint8_t maxVisible = 4;
+    bool isMainMenu = (current.title == "Main Menu");
 
-    // Update scroll position based on cursor movement
-    if (cursorPos < current.scrollPosition) {
-        current.scrollPosition = cursorPos;
-    } else if (cursorPos >= current.scrollPosition + maxVisible) {
-        current.scrollPosition = cursorPos - maxVisible + 1;
-    }
-
-    // Clamp scrollPosition
     int total = current.items.size();
-    if (current.scrollPosition > total - maxVisible) {
-        current.scrollPosition = std::max(0, total - maxVisible);
-    }
+    int w = display.getDisplayWidth();
+    int h = display.getDisplayHeight();
 
-    int start = current.scrollPosition;
+    if (isMainMenu) {
+        // ==============================================================
+        // 🎨 وضع الـ Dashboard المقسم لـ 3 أجزاء
+        // ==============================================================
+        int col1_w = w / 3;
+        int col2_w = w / 3;
+        int col3_x = col1_w + col2_w;
 
-    
-    // Draw title if available
-    uint8_t y = 0;
-    if (!current.title.isEmpty()) {
-        display.drawUTF8(0, y, current.title.c_str());
-        y += lineHeight;
-    }
-    
-    // Draw visible items
-    for (int i = start; i < current.items.size() && i < start + maxVisible; i++) {
-        const auto& item = current.items[i];
-        
-        // Cursor indicator
-        if (i == cursorPos) {
-            display.drawStr(0, y, ">");
-        }
-        
-        // Item rendering
-        switch (item.type) {
-            case MenuItemType::TOGGLE:
-                display.drawUTF8(8, y, item.title ? item.title.c_str() : "");
-                display.drawUTF8(display.getDisplayWidth() - display.getUTF8Width("[X]"), y, 
-                                 item.value.getter() ? "[X]" : "[ ]");
-                break;
-                
-            case MenuItemType::VALUE: {
-                int value = item.value.getter();
-                display.drawUTF8(8, y,item.title ? item.title.c_str() : "");
-                String valStr = (i == cursorPos && editingValue) ? ">" + String(value) + "<" : " " + String(value) + " ";
-                display.drawUTF8(display.getDisplayWidth() - display.getUTF8Width(valStr.c_str()), 
-                               y, valStr.c_str());
-                break;
+        // --- القسم 1: صندوق Load Bank (العنصر 0) ---
+        if (total > 0) {
+            int box_x = 4, box_y = 12, box_w = col1_w - 8, box_h = h - 16;
+            
+            if (cursorPos == 0) {
+                display.drawRBox(box_x, box_y, box_w, box_h, 4);
+                display.setDrawColor(0);
+            } else {
+                display.drawRFrame(box_x, box_y, box_w, box_h, 4);
             }
-                
-            case MenuItemType::CUSTOM:
-                if (item.custom.customDraw) {
-                    item.custom.customDraw(*this, display, 8, y);
+            
+            display.drawUTF8(box_x + (box_w - display.getUTF8Width("LOAD")) / 2, box_y + 6, "LOAD");
+            display.drawUTF8(box_x + (box_w - display.getUTF8Width("BANK")) / 2, box_y + 20, "BANK");
+            display.setDrawColor(2);
+        }
+
+        // ==============================================================
+        // --- القسم 2: دوائر الـ FX (العناصر 1, 2, 3) بشكل أقواس (Stroke Arc) ---
+        // ==============================================================
+        // --- القسم 2: دوائر الـ FX (العناصر 1, 2, 3) بحفل قوس متصل والرقم في الأسفل ---
+        // --- القسم 2: دوائر الـ FX (العناصر 1, 2, 3) بتصميم مستطيل رأسي (Bar) ---
+        int dialCount = 3;
+        for (int i = 0; i < dialCount; i++) {
+            int itemIdx = 1 + i;
+            if (itemIdx >= total) break;
+            const auto& item = current.items[itemIdx];
+
+            // حساب موقع العمود في الشاشة
+            int cx = col1_w + (col2_w / dialCount) * i + (col2_w / (dialCount * 2));
+            
+            // إبعاد اسم التأثير للأعلى قليلاً
+            int tw = display.getUTF8Width(item.title.c_str());
+            display.drawUTF8(cx - tw / 2, 14, item.title.c_str());
+
+            // أبعاد المستطيل الرأسي
+            int bar_w = 8;   // عرض المستطيل
+            int bar_h = 24;  // ارتفاع المستطيل الإجمالي
+            int bar_x = cx - (bar_w / 2);
+            int bar_y = 26;  // موقع البداية من الأعلى
+
+            // 1. حساب النسبة المئوية للقيمة (من 0.0 إلى 1.0)
+            int val = item.value.getter();
+            float percent = 0.0f;
+            if (item.value.max > item.value.min) {
+                percent = (float)(val - item.value.min) / (float)(item.value.max - item.value.min);
+            }
+            if (percent < 0.0f) percent = 0.0f;
+            if (percent > 1.0f) percent = 1.0f;
+
+            // 2. رسم إطار المستطيل الفارغ (الخلفية)
+            display.drawFrame(bar_x, bar_y, bar_w, bar_h);
+
+            // 3. حساب ارتفاع الجزء الممتلئ من الأسفل للأعلى
+            int filled_h = (int)(bar_h * percent);
+            if (filled_h > 0) {
+                // نبدأ الرسم من الأسفل (bar_y + bar_h - filled_h) لكي يمتلئ صعوداً
+                display.drawBox(bar_x + 1, bar_y + bar_h - filled_h - 1, bar_w - 2, filled_h);
+            }
+
+            // 4. تحديد وإبراز العنصر النشط عند الوقوف عليه أو تعديله
+            if (cursorPos == itemIdx) {
+                if (editingValue) {
+                    // إطار عريض ومقلوب الألوان عند وضع التعديل
+                    display.drawRBox(cx - 14, bar_y + bar_h + 3, 28, 11, 2);
+                    display.setDrawColor(0); // عكس اللون ليكون النص واضحاً
                 } else {
-                    display.drawUTF8(8, y, item.title ? item.title.c_str() : "");
+                    display.drawRFrame(cx - 14, bar_y + bar_h + 3, 28, 11, 2);
                 }
-                break;
-                
-            default:
-                display.drawUTF8(8, y, item.title ? item.title.c_str() : "");
-                if (item.type == MenuItemType::SUBMENU) {
-                    display.drawUTF8(display.getDisplayWidth() - 8, y, ">");
-                }
-                break;
+            }
+
+            // 5. رسم الرقم في الأسفل تحت المستطيل تماماً
+            String valStr = String(val);
+            int vw = display.getUTF8Width(valStr.c_str());
+            display.drawUTF8(cx - vw / 2, bar_y + bar_h + 4, valStr.c_str());
+            display.setDrawColor(2); // استعادة اللون الافتراضي للباقي
+        }
+
+        // ==============================================================
+        // --- القسم 3: القائمة النصية الجانبية (العناصر 4 وما بعد) ---
+        // ==============================================================
+        int listStartIdx = 4;
+        int maxVisibleList = 4;
+        
+        if (cursorPos >= listStartIdx) {
+            if (cursorPos < current.scrollPosition) current.scrollPosition = cursorPos;
+            else if (cursorPos >= current.scrollPosition + maxVisibleList) current.scrollPosition = cursorPos - maxVisibleList + 1;
+        } else {
+            current.scrollPosition = listStartIdx;
         }
         
-        y += lineHeight;
+        int y = 12;
+        int itemsDrawn = 0;
+        
+        for (int i = current.scrollPosition; i < total && itemsDrawn < maxVisibleList; i++) {
+            if (i < listStartIdx) continue;
+            
+            const auto& item = current.items[i];
+            if (i == cursorPos) display.drawStr(col3_x - 6, y, ">");
+
+            int textX = col3_x + 2;
+            display.drawUTF8(textX, y, item.title ? item.title.c_str() : "");
+            
+            if (item.type == MenuItemType::SUBMENU) {
+                display.drawUTF8(w - 8, y, ">");
+            }
+            y += 11;
+            itemsDrawn++;
+        }
+
+    } else {
+        // ==============================================================
+        // 📝 وضع القوائم الفرعية العادية
+        // ==============================================================
+        const uint8_t lineHeight = 10;
+        const uint8_t maxVisible = 5;
+
+        if (cursorPos < current.scrollPosition) current.scrollPosition = cursorPos;
+        else if (cursorPos >= current.scrollPosition + maxVisible) current.scrollPosition = cursorPos - maxVisible + 1;
+
+        if (current.scrollPosition > total - maxVisible && total > maxVisible) {
+            current.scrollPosition = total - maxVisible;
+        }
+
+        int start = current.scrollPosition;
+        uint8_t y = 0;
+        
+        if (!current.title.isEmpty()) {
+            display.drawUTF8(0, y, current.title.c_str());
+            y += lineHeight;
+        }
+
+        for (int i = start; i < total && i < start + maxVisible; i++) {
+            const auto& item = current.items[i];
+            if (i == cursorPos) display.drawStr(0, y, ">");
+
+            switch (item.type) {
+                case MenuItemType::TOGGLE:
+                    display.drawUTF8(8, y, item.title ? item.title.c_str() : "");
+                    display.drawUTF8(w - display.getUTF8Width("[X]"), y, item.value.getter() ? "[X]" : "[ ]");
+                    break;
+                case MenuItemType::VALUE: {
+                    int value = item.value.getter();
+                    display.drawUTF8(8, y, item.title ? item.title.c_str() : "");
+                    String valStr = (i == cursorPos && editingValue) ? ">" + String(value) + "<" : " " + String(value) + " ";
+                    display.drawUTF8(w - display.getUTF8Width(valStr.c_str()), y, valStr.c_str());
+                    break;
+                }
+                case MenuItemType::CUSTOM:
+                    if (item.custom.customDraw) item.custom.customDraw(*this, display, 8, y);
+                    else display.drawUTF8(8, y, item.title ? item.title.c_str() : "");
+                    break;
+                default:
+                    display.drawUTF8(8, y, item.title ? item.title.c_str() : "");
+                    if (item.type == MenuItemType::SUBMENU) display.drawUTF8(w - 8, y, ">");
+                    break;
+            }
+            y += lineHeight;
+        }
     }
 }
-
 void TextGUI::renderStatusBar() {
     if (!inited) return;
     char buf[49];
     synth.getActivityString(buf);
-    display.drawUTF8(14, display.getDisplayHeight() - 9, buf);
+    
+    // حساب عرض النص لمطابقته مع حافة الشاشة اليمنى
+    int strWidth = display.getUTF8Width(buf);
+    int x = display.getDisplayWidth() - strWidth - 2; // ترك هامش 2 بيكسل
+    
+    // رسم النص في أعلى الشاشة (y = 0) ليكون في سطر العنوان
+    display.drawUTF8(x, 0, buf);
 }
-
 void TextGUI::enterSubmenu(std::vector<MenuItem>&& items, const String& title) {
     MenuContext newContext;
     newContext.items = std::move(items); // Move instead of copy
@@ -474,8 +568,8 @@ void TextGUI::onEncoderTurn(int direction) {
     // Update scroll position if needed
     if (cursorPos < current.scrollPosition) {
         current.scrollPosition = cursorPos;
-    } else if (cursorPos >= current.scrollPosition + 6) {
-        current.scrollPosition = cursorPos - 5;
+    } else if (cursorPos >= current.scrollPosition + 5) {
+        current.scrollPosition = cursorPos - 4;
     }
     
     needsRedraw = true;
@@ -498,7 +592,8 @@ void TextGUI::adjustValue(int direction, MenuItem& item) {
 }
 
 int TextGUI::partialDisplayUpdate() {
-    static const int send_tiles = 4;
+    // زيادة حجم البلوكات المُرسلة لتسريع الرسم الجزئي (Partial Update)
+    static const int send_tiles = 8; // تم تغييرها من 4 إلى 8 لزيادة السرعة
     static const int block_h = display.getBufferTileHeight();
     static const int block_w = display.getBufferTileWidth();
     static int cur_xt = 0;
@@ -513,4 +608,4 @@ int TextGUI::partialDisplayUpdate() {
     return cur_xt + cur_yt;
 }
 
-#endif
+#endif // ENABLE_GUI

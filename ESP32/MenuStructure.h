@@ -4,14 +4,15 @@
 #include "config.h"
 #include "TextGUI.h"
 #include <FS.h>
-//#include <SD_MMC.h>
-#include <SD.h>
+#include <SD_MMC.h>
+//#include <SD.h>
 #include <LittleFS.h>
 #include "Synth.h"
 #include "TLVStorage.h"
 #include "fx_reverb.h"
 #include "fx_delay.h"
 #include "fx_chorus.h"
+#include "ai_delay.h"
 extern int BASE_NOTE;
 namespace MenuStructure {
 
@@ -162,7 +163,7 @@ static MenuItem createProgramMenu(Synth& synth, uint8_t channel) {
 static MenuItem createLoadBankMenu(Synth& synth) {
     return MenuItem::Submenu("Load Bank", [=, &synth]() {
         return std::vector<MenuItem>{
-            createFileBrowserMenu(synth, SD, "/", FileSystemType::SD, "SD Card"),
+            createFileBrowserMenu(synth, SD_MMC, "/", FileSystemType::SD, "SD Card"),
             createFileBrowserMenu(synth, LittleFS, "/", FileSystemType::LITTLEFS, "Internal")
         };
     });
@@ -237,24 +238,66 @@ std::vector<MenuItem> createDelayMenu(SynthState& state) {
             
         MenuItem::Value("Feedback",
             [&state]() { return (int)(state.delayfx.getFeedback() * 100); },
-            [&state](int v) { state.delayfx.setFeedback((float)(v + 0.5f) / 100.0f); }),
-            0, 100,1),
+            [&state](int v) { state.delayfx.setFeedback((float)(v + 0.5f) / 100.0f); }, 
+            0, 100, 1),
             
         MenuItem::Value("Time (ms)",
             [&state]() { return (int)(state.delayfx.getDelayTime() * 1000); },
             [&state](int v) { state.delayfx.setCustomLength((float)(v + 0.5f) / 1000.0f); },
             1, 1000, 10), // 1-1000ms
             
-        MenuItem::Option("Mode",
-            {"Normal", "PingPong"},
+        MenuItem::Value("Mode",
             [&state]() { return (int)state.delayfx.getMode(); },
-            [&state](int v) { state.delayfx.setMode(static_cast<DelayMode>(v)); })
+            [&state](int v) { state.delayfx.setMode(static_cast<DelayMode>(v)); },
+            0, 1, 1)
+            
+    }; // <-- إغلاق القائمة بشكل صحيح هنا
+} // <-- إغلاق دالة createDelayMenu هنا
+#endif
+
+// --- الدالة الجديدة توضع هنا بشكل مستقل ---
+
+#ifdef ENABLE_AI_DELAY
+std::vector<MenuItem> createAIDelayMenu() {
+    return {
+        MenuItem::Toggle("Enabled",
+            []() { return ai_synth.enabled; },
+            [](int v) { ai_synth.enabled = v ? true : false; }),
+            
+        MenuItem::Toggle("Fade Out",
+            []() { return ai_synth.fade_out_enabled; },
+            [](int v) { ai_synth.fade_out_enabled = v ? true : false; }),
+            
+        MenuItem::Value("Tempo (BPM)",
+            []() { return (int)ai_synth.bpm; },
+            [](int v) { ai_synth.bpm = (uint16_t)v; },
+            60, 240, 1),
+            
+        // 💡 استخدام Value بدلاً من Option (0=1/4, 1=1/8, 2=1/16)
+        MenuItem::Value("Div: 0=1/4,1=1/8,2=1/16",
+            []() { return (int)ai_synth.division; },
+            [](int v) { ai_synth.division = (uint8_t)v; },
+            0, 2, 1),
+            
+        MenuItem::Value("Feedback",
+            []() { return (int)ai_synth.max_feedback; },
+            [](int v) { ai_synth.max_feedback = (uint8_t)v; },
+            0, 15, 1),
+            
+        MenuItem::Value("Rebellion",
+            []() { return (int)ai_synth.rebellion_level; },
+            [](int v) { ai_synth.rebellion_level = (uint8_t)v; },
+            0, 3, 1)
     };
 }
 #endif
 
 // Channel Menu
 std::vector<MenuItem> createChannelMenu(Synth& synth, uint8_t channelIdx) {
+    
+    // 💡 السطر السحري: إجبار القائمة دائماً على قراءة وتعديل القناة 0 (الماستر)
+    channelIdx = 0; 
+    
     return {
         MenuStructure::createProgramMenu(synth, channelIdx),
 
@@ -287,7 +330,7 @@ std::vector<MenuItem> createChannelMenu(Synth& synth, uint8_t channelIdx) {
         MenuItem::Value("Cutoff (Hz)",
             [&synth, channelIdx]() { return synth.channels[channelIdx].filterCutoff ; },
             [&synth, channelIdx](int v) { synth.channels[channelIdx].filterCutoff =  (int)(v + 0.5f); synth.channels[channelIdx].recalcFilter(); },
-            CH_FILTER_MIN_FREQ, CH_FILTER_MAX_FREQ, 50),
+            CH_FILTER_MIN_FREQ, CH_FILTER_MAX_FREQ, 500),
         
         MenuItem::Value("Resonance",
             [&synth, channelIdx]() { return synth.channels[channelIdx].filterResonance * 100.0f / FILTER_MAX_Q; },
@@ -305,59 +348,65 @@ std::vector<MenuItem> createChannelMenu(Synth& synth, uint8_t channelIdx) {
 std::vector<MenuItem> createRootMenu(Synth& synth, SynthState& state) {
     std::vector<MenuItem> menu;
     
-    // --- إضافة خيار تغيير طبقة مفاتيح اللمس (Transpose) في أعلى القائمة ---
-    menu.push_back(MenuItem::Value("Pad Transpose",
-        []() { return BASE_NOTE - 60; },             // قراءة القيمة الحالية (0 تعني الأساس)
-        [](int v) { BASE_NOTE = 60 + v; },           // حفظ القيمة الجديدة
-        -24, 24, 1                                   // النطاق: من -24 إلى +24 (أوكتافين صعوداً ونزولاً) والخطوة 1
-    ));
-
+    // [القسم 1: العمود الأيسر] العنصر رقم 0 سيكون هو صندوق Load Bank
     menu.push_back(MenuStructure::createLoadBankMenu(synth));
 
-    // Channels submenu
-    menu.push_back(MenuItem::Submenu("Channels", [&synth]() {
-        std::vector<MenuItem> items;
-        for (uint8_t i = 0; i < 16; i++) {
-            items.push_back(MenuItem::Submenu(
-                String("Ch ") + (i+1), 
-                [&synth, i]() { return createChannelMenu(synth, i); }
-            ));
-        }
-        return items;
-    }));
+    // [القسم 2: العمود الأوسط] العناصر 1 و 2 و 3 ستتحول برمجياً إلى دوائر FX
+    menu.push_back(MenuItem::Value("Tran", // Transpose
+        []() { return BASE_NOTE - 60; },
+        [](int v) { BASE_NOTE = 60 + v; }, -24, 24, 1));
 
-    // Effects
+    menu.push_back(MenuItem::Value("Rev", // Reverb Master
+        [&synth]() { return synth.channels[0].reverbSend * 100.0f; },
+        [&synth](int v) { 
+            float newRev = (float)(v + 0.5f) / 100.0f;
+            for (int ch = 0; ch < 16; ch++) {
+                synth.channels[ch].reverbSend = newRev;
+            }
+        }, 0, 100, 15)); // الخطوة 15 تقفز بمقدار 15% في كل تكة إنكودر
+
+    // 💡 تم استبدال Dly بـ Vol لتصبح مسؤولة عن التحكم في مستوى الصوت وعرض المستطيل الرأسي
+    menu.push_back(MenuItem::Value("Vol", // Volume Master
+        [&synth]() { return synth.channels[0].volume * 100.0f; },
+        [&synth](int v) { 
+            float newVol = (float)(v + 0.5f) / 100.0f;
+            for (int ch = 0; ch < 16; ch++) {
+                synth.channels[ch].volume = newVol;
+            }
+        }, 0, 100, 5));
+    // [القسم 3: العمود الأيمن] العنصر رقم 4 فما فوق سيظهر كقائمة نصية قابلة للتمرير
+    menu.push_back(MenuItem::Submenu("Master", [&synth]() { // تم اختصار الاسم ليناسب المساحة
+        return createChannelMenu(synth, 0); 
+    }));
+    
     #ifdef ENABLE_REVERB
-    menu.push_back(MenuItem::Submenu("Reverb", 
+    menu.push_back(MenuItem::Submenu("Rev FX", 
         [&state]() { return createReverbMenu(state); }));
     #endif
     
     #ifdef ENABLE_DELAY
-    menu.push_back(MenuItem::Submenu("Delay", 
+    menu.push_back(MenuItem::Submenu("Dly FX", 
         [&state]() { return createDelayMenu(state); }));
     #endif
-    
-    #ifdef ENABLE_CHORUS
-    menu.push_back(MenuItem::Submenu("Chorus", 
-        [&state]() { return createChorusMenu(state); }));
+
+    #ifdef ENABLE_AI_DELAY
+    menu.push_back(MenuItem::Submenu("AI Delay", 
+        []() { return createAIDelayMenu(); }));
     #endif
 
-    // System
     menu.push_back(MenuItem::Submenu("System", [&synth]() {
         return std::vector<MenuItem>{
-            MenuItem::Action("Save Settings", [&synth](TextGUI& gui) {
-                gui.busyMessage( "Saving setup...");
+            MenuItem::Action("Save Setup", [&synth](TextGUI& gui) {
+                gui.busyMessage("Saving...");
                 delay(300);
                 synth.saveSynthState();
             }),
-            MenuItem::Action("Load Settings", [&synth](TextGUI& gui) {
-                gui.busyMessage( "Loading setup...");
+            MenuItem::Action("Load Setup", [&synth](TextGUI& gui) {
+                gui.busyMessage("Loading...");
                 delay(300);
                 synth.loadSynthState();
             }),
-            MenuItem::Action("Reset All", [&synth](TextGUI&) {
-                synth.GMReset();
-            })
+            MenuItem::Action("Reset All", [&synth](TextGUI&) { synth.GMReset(); })
         };
     }));
 

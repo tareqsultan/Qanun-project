@@ -950,7 +950,8 @@ bool Synth::loadSynthState(const char* path) {
 #endif
 #ifdef ENABLE_DELAY
     if (auto it = map.find(PARAM_DELAY_TIME); it != map.end() && it->second.len == 4) {
-        float v; memcpy(&v, it->second.data.data(), 4); delayfx.setDelayTime(v);
+        float v; memcpy(&v, it->second.data.data(), 4);
+        delayfx.setDelayTime((DelayTimeDiv)0, v);
     }
 #endif
 #ifdef ENABLE_CHORUS

@@ -68,7 +68,7 @@ public:
     inline float getBaseDelay() { return baseDelay; }
 
 private:
-    static const int MAX_DELAY = 4096;
+    static const int CHORUS_MAX_DELAY = 4096;
     static const int LFO_UPDATE_INTERVAL = 16;
 
     float bufferL[MAX_DELAY] = {0};

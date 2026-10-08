@@ -26,7 +26,7 @@
 
 // ===================== AUDIO ======================================================================================
 #define   DMA_BUFFER_NUM        2     // number of internal DMA buffers
-#define   DMA_BUFFER_LEN        64    // length of each buffer in samples
+#define   DMA_BUFFER_LEN        128    // length of each buffer in samples
 #define   CHANNEL_SAMPLE_BYTES  2     // can be 1, 2, 3 or 4 (2 and 4 only supported yet)
 #define   SAMPLE_RATE           44100
 
@@ -43,12 +43,12 @@
 
 //#define ENABLE_IN_VOICE_FILTERS       // comment this out to disable voice SF2 filters
 #define ENABLE_REVERB                 // comment this out to disable reverb 
-#define ENABLE_CHORUS                 // comment this out to disable chorus
+//#define ENABLE_CHORUS                 // comment this out to disable chorus
 #define ENABLE_CH_FILTER_M           // uncomment this line to mono per-channel filtering before stereo split
 //#define ENABLE_DELAY                  // comment this out to disable delay
 //#define ENABLE_OVERDRIVE             // comment this out to disable overdrive effect
 //#define ENABLE_CH_FILTER             // not recommended, use ENABLE_CH_FILTER_M instead 
-
+#define ENABLE_AI_DELAY
 #define CH_FILTER_MAX_FREQ 12000.0f
 #define CH_FILTER_MIN_FREQ 50.0f
 #define FILTER_MAX_Q 7.0f
@@ -109,32 +109,35 @@ static const char* SF2_PATH = "/";
 
 #ifdef ENABLE_GUI
 	// choose the right one according to your hardware setup
-  // #define DISPLAY_INTERFACE_HW_SPI // 7 pins
-  // #define DISPLAY_INTERFACE_SW_SPI // 7 pins
-   #define DISPLAY_INTERFACE_HW_I2C // 4 pins
+   #define DISPLAY_INTERFACE_HW_SPI // 7 pins
+  // #define DISPLAY_INTERFACE_SW_SPI // 7 pins  <-- تم تفعيل Software SPI
+  // #define DISPLAY_INTERFACE_HW_I2C // 4 pins
   // #define DISPLAY_INTERFACE_SW_I2C // 4 pins
 
-//#define DISPLAY_CONTROLLER SH1106
-  #define DISPLAY_CONTROLLER SSD1306
+// تحديد متحكم الشاشة الجديد SSD1322
+  #define DISPLAY_CONTROLLER SSD1322
+  #define DISPLAY_SUBTYPE NHD
 
   #define ACTIVE_STATE  LOW   // LOW = switch connects to GND, HIGH = switch connects to 3V3
 
-  //#define BTN0_PIN 	17
+  #define BTN0_PIN 	6
   #define ENC0_A_PIN 	15
   #define ENC0_B_PIN 	16
 
 // display signal wires
 	// the two used both in SPI and I2C
-  #define DISPLAY_SDA 4 // SDA GPIO
-  #define DISPLAY_SCL 5 // SCL GPIO
+  // هذه دبابيس Clock و Data لشاشة SPI الجديدة
+  #define DISPLAY_SCL 17 // SCL (Clock) GPIO
+  #define DISPLAY_SDA 18 // SDA (Data) GPIO
   
 	// SPI specific pins
-  #define DISPLAY_CS  4 // CS GPIO 
-  #define DISPLAY_DC  5 // DC GPIO
-  #define DISPLAY_RES 3 // RES (RST, RESET) GPIO , this pin is not mandatory, but it's better to have one defined
+  #define DISPLAY_CS  21 // CS GPIO 
+  #define DISPLAY_DC  41 // DC GPIO
+  #define DISPLAY_RES 42 // RES (RST, RESET) GPIO 
 
 // display dimensions and layout
-  #define DISPLAY_W 128
+  // أبعاد الشاشة العريضة SSD1322
+  #define DISPLAY_W 256
   #define DISPLAY_H 64
   #define DISPLAY_ROTATE 0 // can be 0, 90, 180 or 270
 #endif
@@ -193,9 +196,10 @@ static const char* SF2_PATH = "/";
 
 #define W_H_DIV X
 
-#define _U8_CONCAT(ctrl, w, div, h, ifc) U8G2_ ## ctrl ## _ ## w ## div ## h ## _NONAME_F_ ## ifc
-#define U8_CONCAT(ctrl, w, div, h, ifc) _U8_CONCAT(ctrl, w, div, h, ifc)
-#define U8_OBJECT U8_CONCAT(DISPLAY_CONTROLLER, DISPLAY_W, W_H_DIV, DISPLAY_H, DISPLAY_INTERFACE)
+// تعديل الماكرو ليدعم تسمية NHD الخاصة بمكتبة U8G2 لشاشات SSD1322
+#define _U8_CONCAT(ctrl, sub, w, div, h, ifc) U8G2_ ## ctrl ## _ ## sub ## _ ## w ## div ## h ## _F_ ## ifc
+#define U8_CONCAT(ctrl, sub, w, div, h, ifc) _U8_CONCAT(ctrl, sub, w, div, h, ifc)
+#define U8_OBJECT U8_CONCAT(DISPLAY_CONTROLLER, DISPLAY_SUBTYPE, DISPLAY_W, W_H_DIV, DISPLAY_H, DISPLAY_INTERFACE)
 
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)

@@ -1,4 +1,4 @@
-#include <SD.h>
+#include <SD_MMC.h>
 #include <sd_defines.h>
 #include <sd_diskio.h>
 
@@ -96,7 +96,7 @@ bool SF2Parser::parse() {
     Serial.println(filepath);
     
     // محاولة فتح الملف مباشرة
-    file = SD.open(filepath, FILE_READ);
+    file = SD_MMC.open(filepath, FILE_READ);
     
     if (!file) { 
         Serial.println(">>> ERROR: File NOT FOUND or cannot be opened! <<<");
